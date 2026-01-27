@@ -1,4 +1,5 @@
-from os import path
+import os
+import os.path as path
 from charset_normalizer import from_path
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,13 +9,11 @@ from scipy.io import loadmat
 def visualize_csv_data(csv_path: str):
     """Visualize data from a CSV file."""
     data = np.genfromtxt(csv_path, delimiter=',', names=True)
-
     t = data['Time']
     a0 = data['ai0']
     a1 = data['ai1']
 
     fig, (ax0, ax1) = plt.subplots(2, 1, sharex=True)
-
     ax0.plot(t, a0)
     ax0.set_title("ai0")
     ax0.set_ylabel("Amplitude")
@@ -27,19 +26,16 @@ def visualize_csv_data(csv_path: str):
     ax1.grid(True)
 
     plt.tight_layout()
-    plt.show()
-    
-    
-visualize_csv_data("data\CSV\MATLAB 1-00 PM Fri, Jun 28, 2024 Run8 .csv")
+    return fig  # Return the figure
 
-# Run visualization on all csv files in diretory data/CSVand save them to data/boiling_plots as png files
-for file in path.listdir("data/CSV"):
-    if file.endswith(".csv"):
-        csv_path = path.join("data/CSV", file)
-        visualize_csv_data(csv_path)
-        save_path = path.splitext(csv_path)[0] + ".png"
-        plt.savefig(path.join("data/boiling_plots", path.basename(save_path)))
-        plt.close()
+if __name__ == "__main__":
+    for file in os.listdir("data/CSV"):
+        if file.endswith(".csv"):
+            csv_path = path.join("data/CSV", file)
+            fig = visualize_csv_data(csv_path)
+            save_path = path.splitext(csv_path)[0] + ".png"
+            fig.savefig(path.join("data/boiling_plots", path.basename(save_path)))
+            plt.close(fig)
 
 
 

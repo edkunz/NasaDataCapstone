@@ -4,26 +4,63 @@ from scipy import signal
 from pathlib import Path
 import time
 
-# --- Copied from functions.py for self-containment ---
-def unpack_data(data):
-    time = data.iloc[:, 0]
-    a0_signal = data.iloc[:, 1]
-    a1_signal = data.iloc[:, 2]
-    return time, a0_signal, a1_signal
+# ---------------- helpers ----------------
 
-def get_peaks(acceleration):
-    import numpy as np
-    from scipy import signal
-    percentile = np.percentile(acceleration, 99.5)
-    percent_of_max = 0.1 * np.max(acceleration)
+def infer_fs_from_time_index(t, fs_default=10000):
+    """
+    If t looks like seconds (numeric, increasing, with stable dt), infer fs.
+    Otherwise fall back to fs_default.
+    """
+    try:
+        t = np.asarray(t, dtype=float)
+        if t.size < 3:
+            return fs_default
+        dt = np.diff(t)
+        dt = dt[np.isfinite(dt)]
+        if dt.size == 0:
+            return fs_default
+        dt_med = np.median(dt)
+        if dt_med <= 0:
+            return fs_default
+        fs = 1.0 / dt_med
+        # sanity check: if wildly off, use default
+        if fs < 10 or fs > 200000:
+            return fs_default
+        return fs
+    except Exception:
+        return fs_default
+
+
+def get_peaks(acceleration, fs, t=None):
+    """
+    Returns:
+      peak_indices (samples),
+      peak_times (seconds),
+      peak_heights (values)
+    """
+    acc = np.asarray(acceleration)
+
+    percentile = np.percentile(acc, 99.5)
+    percent_of_max = 0.1 * np.max(acc)
+
     def clamp(value, lower=0.015, upper=0.1):
         return max(lower, min(value, upper))
+
     height = clamp(max(percentile, percent_of_max))
-    distance = 350 + 5 / height
-    peak_indices, peak_heights = signal.find_peaks(acceleration, distance=distance, height=height)
-    # Keep original indices for data access
-    scaled_indices = peak_indices / 10000
-    return peak_indices, scaled_indices, peak_heights["peak_heights"]
+
+    # distance must be an integer number of samples
+    distance = int(350 + 5 / height)
+
+    peak_indices, props = signal.find_peaks(acc, distance=distance, height=height)
+    peak_heights = props["peak_heights"]
+
+    if t is not None:
+        t_arr = np.asarray(t, dtype=float)
+        peak_times = t_arr[peak_indices]
+    else:
+        peak_times = peak_indices / float(fs)
+
+    return peak_indices, peak_times, peak_heights
 
 class Candidates:
     def __init__(self, x, y, run_length, confidence=0.99, verbose=False):
@@ -177,105 +214,125 @@ def get_boilings_data(x, y, run_length, verbose=False):
     return min(num_boilings, 3), unused_peak_proportion
 # --- End of copied code ---
 
-def compute_spectral_entropy(signal_data, fs=1000):
+def compute_spectral_entropy(signal_data, fs):
     freqs, psd = signal.welch(signal_data, fs=fs, nperseg=256)
     psd_norm = psd / np.sum(psd)
-    entropy = -np.sum(psd_norm * np.log2(psd_norm + 1e-12))
-    return entropy
+    return -np.sum(psd_norm * np.log2(psd_norm + 1e-12))
 
-def compute_spectral_centroid(signal_data, fs=1000):
+
+def compute_spectral_centroid(signal_data, fs):
     freqs, psd = signal.welch(signal_data, fs=fs, nperseg=256)
-    centroid = np.sum(freqs * psd) / np.sum(psd)
-    return centroid
+    return np.sum(freqs * psd) / np.sum(psd)
 
-def compute_spectral_flatness(signal_data, fs=1000):
+
+def compute_spectral_flatness(signal_data, fs):
     freqs, psd = signal.welch(signal_data, fs=fs, nperseg=256)
     geometric_mean = np.exp(np.mean(np.log(psd + 1e-12)))
     arithmetic_mean = np.mean(psd)
-    flatness = geometric_mean / arithmetic_mean
-    return flatness
+    return geometric_mean / arithmetic_mean
 
-def compute_spectral_bandwidth(signal_data, fs=1000):
+
+def compute_spectral_bandwidth(signal_data, fs):
     freqs, psd = signal.welch(signal_data, fs=fs, nperseg=256)
     centroid = np.sum(freqs * psd) / np.sum(psd)
-    bandwidth = np.sqrt(np.sum(psd * (freqs - centroid) ** 2) / np.sum(psd))
-    return bandwidth
+    return np.sqrt(np.sum(psd * (freqs - centroid) ** 2) / np.sum(psd))
 
-def extract_peak_features(file):
-    data = pd.read_csv(file, index_col="Time")
-    time, signal_data = unpack_data(data)
-    peak_indices, scaled_peaks, peak_heights = get_peaks(signal_data)
+
+def extract_channel_features(sig, t, fs, prefix):
+    """
+    Compute all features for one channel and prefix keys.
+    """
+    sig = np.asarray(sig)
+    t = np.asarray(t, dtype=float)
+
+    run_length = float(t[-1] - t[0]) if t.size > 1 else (len(sig) / fs)
+
+    feats = {
+        f"{prefix}spectral_entropy": compute_spectral_entropy(sig, fs),
+        f"{prefix}spectral_centroid": compute_spectral_centroid(sig, fs),
+        f"{prefix}spectral_flatness": compute_spectral_flatness(sig, fs),
+        f"{prefix}spectral_bandwidth": compute_spectral_bandwidth(sig, fs),
+    }
+    peak_indices, peak_times, peak_heights = get_peaks(sig, fs, t=t)
     if len(peak_indices) <= 2:
-        return None
-    magnitude = np.array(signal_data.iloc[peak_indices])  # Use original indices for data access
-    time_differences = np.diff(scaled_peaks) if len(scaled_peaks) > 1 else [np.nan]  # Use scaled indices for time differences
-    std_dev_time_diff = np.std(time_differences)
-    mean_time_diff = np.mean(time_differences)
-    median_time_diff = np.median(time_differences)
-    max_peak = np.max(magnitude) if len(magnitude) > 0 else np.nan
-    median_peak = np.median(magnitude) if len(magnitude) > 0 else np.nan
-    std_peak = np.std(magnitude) if len(magnitude) > 0 else np.nan
-    avg_peaks_per_second = np.mean(scaled_peaks) if len(scaled_peaks) > 0 else np.nan  # Use scaled indices
-    sum_peak_magnitude = np.sum(magnitude) if len(magnitude) > 0 else np.nan
-    percent_time_above_threshold = np.mean(signal_data > min(magnitude))
-    run_length = len(time) / 10000
-    num_boilings, unused_peak_proportion = get_boilings_data(scaled_peaks, magnitude, run_length)  # Use scaled indices
-    project_root = Path(__file__).resolve().parent.parent
-    file_path = Path(file).resolve()
-    try:
-        rel_file = file_path.relative_to(project_root)
-        file_name_str = str(rel_file)
-    except ValueError:
-        file_name_str = file_path.name
-    return {
-        "file_name": file_name_str,
-        "std_dev_time_diff": std_dev_time_diff,
-        "mean_time_diff": mean_time_diff,
-        "median_time_diff": median_time_diff,
-        "max_peak": max_peak,
-        "median_peak": median_peak,
-        "std_peak": std_peak,
-        "avg_peaks_per_second": avg_peaks_per_second,
-        "sum_peak_magnitude": sum_peak_magnitude,
-        "percent_time_above_threshold": percent_time_above_threshold,
-        "num_boilings": num_boilings,
-        "unused_peak_proportion": unused_peak_proportion
-    }
+        # Still return spectral features; peak features become 0/NaN-safe later
+        feats.update({
+            f"{prefix}std_dev_time_diff": np.nan,
+            f"{prefix}mean_time_diff": np.nan,
+            f"{prefix}median_time_diff": np.nan,
+            f"{prefix}max_peak": np.nan,
+            f"{prefix}median_peak": np.nan,
+            f"{prefix}std_peak": np.nan,
+            f"{prefix}peaks_per_second": np.nan,
+            f"{prefix}sum_peak_magnitude": np.nan,
+            f"{prefix}percent_time_above_threshold": np.nan,
+            f"{prefix}num_boilings": 0,
+            f"{prefix}unused_peak_proportion": 0.0,
+        })
+        return feats
+    magnitudes = sig[peak_indices]
+    time_differences = np.diff(peak_times)
+    feats.update({
+        f"{prefix}std_dev_time_diff": float(np.std(time_differences)) if time_differences.size else np.nan,
+        f"{prefix}mean_time_diff": float(np.mean(time_differences)) if time_differences.size else np.nan,
+        f"{prefix}median_time_diff": float(np.median(time_differences)) if time_differences.size else np.nan,
+        f"{prefix}max_peak": float(np.max(magnitudes)),
+        f"{prefix}median_peak": float(np.median(magnitudes)),
+        f"{prefix}std_peak": float(np.std(magnitudes)),
+        f"{prefix}peaks_per_second": float(len(peak_indices) / run_length) if run_length > 0 else np.nan,
+        f"{prefix}sum_peak_magnitude": float(np.sum(magnitudes)),
+        f"{prefix}percent_time_above_threshold": float(np.mean(sig > np.min(magnitudes))),
+    })
 
-def extract_all_features(file):
+    # Use peak_times (seconds) for regime detection if that's what your code expects as "x"
+    num_boilings, unused_peak_proportion = get_boilings_data(
+        x=peak_times.tolist(),
+        y=magnitudes.tolist(),
+        run_length=run_length
+    )
+    feats.update({
+        f"{prefix}num_boilings": int(num_boilings),
+        f"{prefix}unused_peak_proportion": float(unused_peak_proportion),
+    })
+    return feats
+
+
+def extract_all_features(file, fs_default=10000):
     data = pd.read_csv(file, index_col="Time")
-    _, signal_data = unpack_data(data)
-    # Use the file path as a string relative to the workspace root if possible, else just the filename
-    project_root = Path(__file__).resolve().parent.parent
-    file_path = Path(file).resolve()
-    try:
-        rel_file = file_path.relative_to(project_root)
-        file_name_str = str(rel_file)
-    except ValueError:
-        file_name_str = file_path.name
-    features = {
-        "file_name": file_name_str,
-        "spectral_entropy": compute_spectral_entropy(signal_data),
-        "spectral_centroid": compute_spectral_centroid(signal_data),
-        "spectral_flatness": compute_spectral_flatness(signal_data),
-        "spectral_bandwidth": compute_spectral_bandwidth(signal_data)
-    }
-    peak_features = extract_peak_features(file)
-    if peak_features:
-        features.update(peak_features)
+    # time index from CSV (assumed numeric seconds if your CSV is like that)
+    t = data.index.to_numpy()
+    fs = infer_fs_from_time_index(t, fs_default=fs_default)
+    # Choose columns 0 and 1 as a0/a1
+    a0 = data.iloc[:, 0].to_numpy()
+    a1 = data.iloc[:, 1].to_numpy()
+    features = {"file_name": Path(file).name}
+    features.update(extract_channel_features(a0, t, fs, prefix="a0_"))
+    features.update(extract_channel_features(a1, t, fs, prefix="a1_"))
+
     return features
 
-def process_directory(directory_name="Production/labeled_runs/", verbose=False):
-    script_dir = Path(__file__).resolve().parent
-    directory = (script_dir / ".." / directory_name).resolve()
+
+def process_directory(directory_name, verbose=False, fs_default=10000):
+    # avoid __file__ issues in notebooks
+    try:
+        script_dir = Path(__file__).resolve().parent
+        directory = (script_dir / directory_name).resolve()
+    except NameError:
+        directory = (Path.cwd() / directory_name).resolve()
     extracted_features = []
     for f in directory.iterdir():
-        if f.suffix == '.csv':
+        if f.suffix.lower() == ".csv":
             start = time.time()
-            extracted_features.append(extract_all_features(f))
+            extracted_features.append(extract_all_features(f, fs_default=fs_default))
             if verbose:
-                print(f"Extracted features from {f} in {round(time.time() - start, 2)} seconds.")
+                print(f"Extracted features from {f.name} in {round(time.time() - start, 2)} seconds.")
+
     feature_df = pd.DataFrame(extracted_features)
     feature_df.fillna(0, inplace=True)
-    feature_df.to_csv("features.csv", index=False)
-    print("Features saved successfully to 'features.csv'!")
+    out_path = Path("data/features.csv")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_df.to_csv(out_path, index=False)
+    print(f"Features saved successfully to '{out_path}'!")
+    
+if __name__ == "__main__":
+    process_directory(directory_name="data/CSV", verbose=True, fs_default=10000)

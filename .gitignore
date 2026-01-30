@@ -1,3 +1,7 @@
 # ignore .zip files
 *.zip
 
+# ignore directory named PreviousWork
+PreviousWork/
+
+

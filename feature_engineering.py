@@ -23,7 +23,6 @@ def infer_fs_from_time_index(t, fs_default=10000):
         if dt_med <= 0:
             return fs_default
         fs = 1.0 / dt_med
-        # sanity check: if wildly off, use default
         if fs < 10 or fs > 200000:
             return fs_default
         return fs
@@ -39,28 +38,27 @@ def get_peaks(acceleration, fs, t=None):
       peak_heights (values)
     """
     acc = np.asarray(acceleration)
-
     percentile = np.percentile(acc, 99.5)
     percent_of_max = 0.1 * np.max(acc)
-
     def clamp(value, lower=0.015, upper=0.1):
         return max(lower, min(value, upper))
-
     height = clamp(max(percentile, percent_of_max))
-
     # distance must be an integer number of samples
     distance = int(350 + 5 / height)
-
     peak_indices, props = signal.find_peaks(acc, distance=distance, height=height)
     peak_heights = props["peak_heights"]
-
     if t is not None:
         t_arr = np.asarray(t, dtype=float)
         peak_times = t_arr[peak_indices]
     else:
         peak_times = peak_indices / float(fs)
-
     return peak_indices, peak_times, peak_heights
+
+
+def create_kv_pair_peak_num_and_mag(signal, fs):
+    # creates key value pairs with the peak number for run as key and peak magnitude as value
+    peak_indices, peak_times, peak_heights = get_peaks(signal, fs)
+    return [[peak_indices[i], peak_heights[i]] for i in range(len(peak_indices))]
 
 class Candidates:
     def __init__(self, x, y, run_length, confidence=0.99, verbose=False):
@@ -238,6 +236,49 @@ def compute_spectral_bandwidth(signal_data, fs):
     return np.sqrt(np.sum(psd * (freqs - centroid) ** 2) / np.sum(psd))
 
 
+# New Features
+
+def num_peak_mag_high_diff(signal1, signal2, fs):
+    # computes the difference in peak magnitudes between two channels
+    # returns number of peaks with difference above a threshold
+    peak_num1, peak_mag1 = create_kv_pair_peak_num_and_mag(signal1, fs)
+    peak_num2, peak_mag2 = create_kv_pair_peak_num_and_mag(signal2, fs)
+    for k1,v1 in create_kv_pair_peak_num_and_mag(signal1, fs):
+        for k2,v2 in create_kv_pair_peak_num_and_mag(signal2, fs):
+            if k1 == k2:
+                diffs = [abs(v1 - v2)]
+                threshold = np.mean(diffs) + 2 * np.std(diffs)
+                return sum(1 for diff in diffs if diff > threshold)
+            return 0
+
+def avg_peak_mag_diff(signal1, signal2, fs):
+    # computes the average difference in peak magnitudes between two channels
+    peak_num1, peak_mag1 = create_kv_pair_peak_num_and_mag(signal1, fs)
+    peak_num2, peak_mag2 = create_kv_pair_peak_num_and_mag(signal2, fs)
+    diffs = []
+    for k1,v1 in create_kv_pair_peak_num_and_mag(signal1, fs):
+        for k2,v2 in create_kv_pair_peak_num_and_mag(signal2, fs):
+            if k1 == k2:
+                diffs.append(abs(v1 - v2))
+    return np.mean(diffs) if diffs else 0.0
+
+def peak_mag_correlation(signal1, signal2, fs):
+    # computes the correlation between peak magnitudes of two channels
+    peak_num1, peak_mag1 = create_kv_pair_peak_num_and_mag(signal1, fs)
+    peak_num2, peak_mag2 = create_kv_pair_peak_num_and_mag(signal2, fs)
+    mags1 = []
+    mags2 = []
+    for k1,v1 in create_kv_pair_peak_num_and_mag(signal1, fs):
+        for k2,v2 in create_kv_pair_peak_num_and_mag(signal2, fs):
+            if k1 == k2:
+                mags1.append(v1)
+                mags2.append(v2)
+    if len(mags1) < 2 or len(mags2) < 2:
+        return 0.0
+    return np.corrcoef(mags1, mags2)[0, 1]
+
+
+
 def extract_channel_features(sig, t, fs, prefix):
     """
     Compute all features for one channel and prefix keys.
@@ -282,7 +323,7 @@ def extract_channel_features(sig, t, fs, prefix):
         f"{prefix}peaks_per_second": float(len(peak_indices) / run_length) if run_length > 0 else np.nan,
         f"{prefix}sum_peak_magnitude": float(np.sum(magnitudes)),
         f"{prefix}percent_time_above_threshold": float(np.mean(sig > np.min(magnitudes))),
-    })
+        })
 
     # Use peak_times (seconds) for regime detection if that's what your code expects as "x"
     num_boilings, unused_peak_proportion = get_boilings_data(
@@ -308,7 +349,10 @@ def extract_all_features(file, fs_default=10000):
     features = {"file_name": Path(file).name}
     features.update(extract_channel_features(a0, t, fs, prefix="a0_"))
     features.update(extract_channel_features(a1, t, fs, prefix="a1_"))
-
+    # New features involving both channels
+    features["num_peak_mag_high_diff"] = num_peak_mag_high_diff(a0, a1, fs)
+    features["avg_peak_mag_diff"] = avg_peak_mag_diff(a0, a1, fs)
+    features["peak_mag_correlation"] = peak_mag_correlation(a0, a1, fs)
     return features
 
 

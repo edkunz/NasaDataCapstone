@@ -181,7 +181,7 @@ def get_peaks(acceleration, fs, t=None):
 def create_kv_pair_peak_num_and_mag(signal, fs):
     # creates key value pairs with the peak number for run as key and peak magnitude as value
     peak_indices, peak_times, peak_heights = get_peaks(signal, fs)
-    return [[peak_indices[i], peak_heights[i]] for i in range(len(peak_indices))]
+    return [[i, peak_heights[i]] for i in range(len(peak_indices))]
 
 class Candidates:
     def __init__(self, x, y, run_length, confidence=0.99, verbose=False):

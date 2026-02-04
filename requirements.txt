@@ -1,4 +1,10 @@
 pandas
-numpu
+numpy<2.3
 ipykernel
 scipy
+matplotlib
+scikit-learn
+umap-learn
+hdbscan
+jupyter
+ipywidgets

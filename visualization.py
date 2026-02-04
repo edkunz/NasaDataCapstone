@@ -2,6 +2,8 @@ import os
 import os.path as path
 from charset_normalizer import from_path
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")  # Non-interactive backend so script doesn't hang when saving figures
 import matplotlib.pyplot as plt
 from scipy.io import loadmat
 
@@ -29,6 +31,7 @@ def visualize_csv_data(csv_path: str):
     return fig  # Return the figure
 
 if __name__ == "__main__":
+    count = 0
     for file in os.listdir("data/CSV"):
         if file.endswith(".csv"):
             csv_path = path.join("data/CSV", file)
@@ -36,6 +39,8 @@ if __name__ == "__main__":
             save_path = path.splitext(csv_path)[0] + ".png"
             fig.savefig(path.join("data/boiling_plots", path.basename(save_path)))
             plt.close(fig)
+            count += 1
+    print(f"Done. Saved {count} plot(s) to data/boiling_plots/")
 
 
 

@@ -4,6 +4,7 @@ from scipy import signal
 from pathlib import Path
 import time
 from scipy.stats import skew, kurtosis
+import pywt
 
 ## New feature engineering (can incorporate into extract_all_features)
  
@@ -89,8 +90,6 @@ def compute_spectral_flux(signal_data, fs=1000):
     flux = np.sum(np.diff(Sxx, axis=1) ** 2, axis=0)
     return np.mean(flux)
 
-
-import pywt
 
 def compute_wavelet_energy(signal_data, wavelet="morl", scales=None):
     if scales is None:

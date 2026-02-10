@@ -120,17 +120,13 @@ def compute_regime_dominance(candidates):
         return 0
     hit_counts = [len(c.hit_indices) for c in candidates.candidate_lst]
     return max(hit_counts) / sum(hit_counts)
-import pandas as pd
-import numpy as np
-from scipy import signal
-from pathlib import Path
-import time
+
 
 # ---------------- helpers ----------------
 
 def infer_fs_from_time_index(t, fs_default=10000):
     """
-    If t looks like seconds (numeric, increasing, with stable dt), infer fs.
+    If it looks like seconds (numeric, increasing, with stable dt), infer fs.
     Otherwise fall back to fs_default.
     """
     try:
@@ -495,7 +491,8 @@ def process_directory(directory_name, verbose=False, fs_default=10000):
     feature_df.fillna(0, inplace=True)
     out_path = Path("data/features.csv")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    feature_df.to_csv(out_path, index=False)
+    feature_df.sort_values("file_name", inplace=True)
+    feature_df.to_csv(out_path, index=False, )
     print(f"Features saved successfully to '{out_path}'!")
     
 if __name__ == "__main__":

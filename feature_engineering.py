@@ -4,6 +4,7 @@ from scipy import signal
 from pathlib import Path
 import time
 from scipy.stats import skew, kurtosis
+import pywt
 
 ## New feature engineering (can incorporate into extract_all_features)
  
@@ -90,8 +91,6 @@ def compute_spectral_flux(signal_data, fs=1000):
     return np.mean(flux)
 
 
-import pywt
-
 def compute_wavelet_energy(signal_data, wavelet="morl", scales=None):
     if scales is None:
         scales = np.arange(1, 64)
@@ -121,17 +120,13 @@ def compute_regime_dominance(candidates):
         return 0
     hit_counts = [len(c.hit_indices) for c in candidates.candidate_lst]
     return max(hit_counts) / sum(hit_counts)
-import pandas as pd
-import numpy as np
-from scipy import signal
-from pathlib import Path
-import time
+
 
 # ---------------- helpers ----------------
 
 def infer_fs_from_time_index(t, fs_default=10000):
     """
-    If t looks like seconds (numeric, increasing, with stable dt), infer fs.
+    If it looks like seconds (numeric, increasing, with stable dt), infer fs.
     Otherwise fall back to fs_default.
     """
     try:
@@ -361,44 +356,42 @@ def compute_spectral_bandwidth(signal_data, fs):
 
 # New Features
 
-def num_peak_mag_high_diff(signal1, signal2, fs):
-    # computes the difference in peak magnitudes between two channels
-    # returns number of peaks with difference above a threshold
-    peak_num1, peak_mag1 = create_kv_pair_peak_num_and_mag(signal1, fs)
-    peak_num2, peak_mag2 = create_kv_pair_peak_num_and_mag(signal2, fs)
-    for k1,v1 in create_kv_pair_peak_num_and_mag(signal1, fs):
-        for k2,v2 in create_kv_pair_peak_num_and_mag(signal2, fs):
-            if k1 == k2:
-                diffs = [abs(v1 - v2)]
-                threshold = np.mean(diffs) + 2 * np.std(diffs)
-                return sum(1 for diff in diffs if diff > threshold)
-            return 0
+def _peak_mags(sig, fs):
+    # helper function: extracts peak magnitudes from a single accelerometer signal.
+    peak_indices, peak_times, peak_heights = get_peaks(sig, fs)
+    return np.asarray(peak_heights, dtype=float)
+
+def num_peak_mag_high_diff(signal1, signal2, fs, z_thresh=2.0):
+    # counts how many peaks have a large magnitude difference between accelerometer 0 and 1
+    mags1 = _peak_mags(signal1, fs)
+    mags2 = _peak_mags(signal2, fs)
+    n = min(len(mags1), len(mags2))
+    if n < 3:
+        return 0
+    diffs = np.abs(mags1[:n] - mags2[:n])
+    thr = np.mean(diffs) + z_thresh * np.std(diffs)
+    return int(np.sum(diffs > thr))
+
 
 def avg_peak_mag_diff(signal1, signal2, fs):
-    # computes the average difference in peak magnitudes between two channels
-    peak_num1, peak_mag1 = create_kv_pair_peak_num_and_mag(signal1, fs)
-    peak_num2, peak_mag2 = create_kv_pair_peak_num_and_mag(signal2, fs)
-    diffs = []
-    for k1,v1 in create_kv_pair_peak_num_and_mag(signal1, fs):
-        for k2,v2 in create_kv_pair_peak_num_and_mag(signal2, fs):
-            if k1 == k2:
-                diffs.append(abs(v1 - v2))
-    return np.mean(diffs) if diffs else 0.0
+    # computes the average difference in peak magnitude between the two accelerometers.
+    mags1 = _peak_mags(signal1, fs)
+    mags2 = _peak_mags(signal2, fs)
+    n = min(len(mags1), len(mags2))
+    if n == 0:
+        return 0.0
+    return float(np.mean(np.abs(mags1[:n] - mags2[:n])))
+
 
 def peak_mag_correlation(signal1, signal2, fs):
-    # computes the correlation between peak magnitudes of two channels
-    peak_num1, peak_mag1 = create_kv_pair_peak_num_and_mag(signal1, fs)
-    peak_num2, peak_mag2 = create_kv_pair_peak_num_and_mag(signal2, fs)
-    mags1 = []
-    mags2 = []
-    for k1,v1 in create_kv_pair_peak_num_and_mag(signal1, fs):
-        for k2,v2 in create_kv_pair_peak_num_and_mag(signal2, fs):
-            if k1 == k2:
-                mags1.append(v1)
-                mags2.append(v2)
-    if len(mags1) < 2 or len(mags2) < 2:
+    # measures how similar the peak magnitude patterns are between the two accelerometers.
+    mags1 = _peak_mags(signal1, fs)
+    mags2 = _peak_mags(signal2, fs)
+    n = min(len(mags1), len(mags2))
+    if n < 2:
         return 0.0
-    return np.corrcoef(mags1, mags2)[0, 1]
+    r = np.corrcoef(mags1[:n], mags2[:n])[0, 1]
+    return float(0.0 if not np.isfinite(r) else r)
 
 
 
@@ -498,7 +491,8 @@ def process_directory(directory_name, verbose=False, fs_default=10000):
     feature_df.fillna(0, inplace=True)
     out_path = Path("data/features.csv")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    feature_df.to_csv(out_path, index=False)
+    feature_df.sort_values("file_name", inplace=True)
+    feature_df.to_csv(out_path, index=False, )
     print(f"Features saved successfully to '{out_path}'!")
     
 if __name__ == "__main__":

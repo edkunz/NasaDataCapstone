@@ -5,33 +5,29 @@ from pathlib import Path
 import time
 from scipy.stats import skew, kurtosis
 import pywt
+import networkx as nx
 
 ## New feature engineering (can incorporate into extract_all_features)
- 
+
 ## Time-domain statistical features
-def compute_rms(signal_data):
+def compute_rms(signal_data): # implemented
     signal_data = np.asarray(signal_data)
     return np.sqrt(np.mean(signal_data ** 2))
 
-def compute_skewness(signal_data):
+def compute_skewness(signal_data): # implemented
     return skew(signal_data)
 
-def compute_kurtosis(signal_data):
+def compute_kurtosis(signal_data): #implemented
     return kurtosis(signal_data)
 
-def compute_crest_factor(signal_data):
+def compute_crest_factor(signal_data): # implemented
     rms = compute_rms(signal_data)
     if rms == 0:
         return 0
     return np.max(np.abs(signal_data)) / rms
 
 ## Improved peak based features
-def compute_peak_rate(num_peaks, duration_seconds):
-    if duration_seconds == 0:
-        return 0
-    return num_peaks / duration_seconds
-
-def peak_magnitude_stats(peak_magnitudes):
+def peak_magnitude_stats(peak_magnitudes): # implemented
     if len(peak_magnitudes) == 0:
         return 0, 0, 0
     return (
@@ -40,12 +36,12 @@ def peak_magnitude_stats(peak_magnitudes):
         np.percentile(peak_magnitudes, 75) - np.percentile(peak_magnitudes, 25)
     )
 
-def compute_burstiness(inter_peak_times):
-    if len(inter_peak_times) < 2:
+def compute_burstiness(inter_peak_times): #implemented
+    if len(inter_peak_times) < 2 or np.mean(inter_peak_times) == 0:
         return 0
     return np.std(inter_peak_times) / np.mean(inter_peak_times)
 
-def compute_band_powers(signal_data, fs=1000, bands=None):
+def compute_band_powers(signal_data, fs=1000, bands=None): #implemented
     if bands is None:
         bands = {
             "low": (0, 200),
@@ -65,14 +61,14 @@ def compute_band_powers(signal_data, fs=1000, bands=None):
     return band_powers
 
 
-def compute_band_ratios(band_powers):
+def compute_band_ratios(band_powers): #implemented
     low = band_powers.get("low_band_power", 0)
     high = band_powers.get("high_band_power", 0)
     return {
         "high_to_low_ratio": high / low if low > 0 else 0
     }
 
-def compute_spectrogram_features(signal_data, fs=1000):
+def compute_spectrogram_features(signal_data, fs=1000): #implemented
     freqs, times, Sxx = signal.spectrogram(signal_data, fs=fs)
     Sxx_norm = Sxx / (np.sum(Sxx, axis=0, keepdims=True) + 1e-12)
 
@@ -85,13 +81,13 @@ def compute_spectrogram_features(signal_data, fs=1000):
     }
 
 
-def compute_spectral_flux(signal_data, fs=1000):
+def compute_spectral_flux(signal_data, fs=1000): #implemented
     freqs, times, Sxx = signal.spectrogram(signal_data, fs=fs)
     flux = np.sum(np.diff(Sxx, axis=1) ** 2, axis=0)
     return np.mean(flux)
 
 
-def compute_wavelet_energy(signal_data, wavelet="morl", scales=None):
+def compute_wavelet_energy(signal_data, wavelet="morl", scales=None): #implemented
     if scales is None:
         scales = np.arange(1, 64)
 
@@ -106,7 +102,7 @@ def compute_wavelet_energy(signal_data, wavelet="morl", scales=None):
 
 
 ## Regime transition/change point features
-def compute_rms_change_points(signal_data, window_size=1000, threshold=2.0):
+def compute_rms_change_points(signal_data, window_size=1000, threshold=2.0): #implemented
     rms_values = []
     for i in range(0, len(signal_data) - window_size, window_size):
         rms_values.append(compute_rms(signal_data[i:i+window_size]))
@@ -115,11 +111,12 @@ def compute_rms_change_points(signal_data, window_size=1000, threshold=2.0):
     diffs = np.abs(np.diff(rms_values))
     return np.sum(diffs > threshold * np.std(rms_values))
 
-def compute_regime_dominance(candidates):
+def compute_regime_dominance(candidates): #implemented
     if not candidates.candidate_lst:
         return 0
     hit_counts = [len(c.hit_indices) for c in candidates.candidate_lst]
     return max(hit_counts) / sum(hit_counts)
+
 import pandas as pd
 import numpy as np
 from scipy import signal
@@ -219,7 +216,6 @@ class Candidates:
     def prune_insufficient_hits(self, verbose=None):
         self.candidate_lst = [c for c in self.candidate_lst if c.hits >= 3 and c.binomial_test(self.p_null, alpha=self.alpha / max(1, len(self.candidate_lst)))]
     def group_candidates_by_similarity(self, threshold=0.75, verbose=None):
-        import networkx as nx
         candidates = self.candidate_lst
         n = len(candidates)
         ids = [c.id for c in candidates]
@@ -455,6 +451,53 @@ def extract_channel_features(sig, t, fs, prefix):
         f"{prefix}num_boilings": int(num_boilings),
         f"{prefix}unused_peak_proportion": float(unused_peak_proportion),
     })
+    ## Time-domain statistical features
+    skewness = compute_skewness(sig)
+    kurt = compute_kurtosis(sig)
+    crest_factor = compute_crest_factor(sig)
+    rms = compute_rms(sig)
+    feats.update({
+        f"{prefix}skewness": float(skewness),
+        f"{prefix}kurtosis": float(kurt),
+        f"{prefix}crest_factor": float(crest_factor),
+        f"{prefix}rms": float(rms),
+    })
+    ## New "improved" peak based features
+    burstiness = compute_burstiness(time_differences)
+    band_powers = compute_band_powers(sig, fs)
+    band_ratios = compute_band_ratios(band_powers)
+
+    spectrogram_feats = compute_spectrogram_features(sig, fs)
+    spectral_flux = compute_spectral_flux(sig, fs)
+    wavelet_energy_feats = compute_wavelet_energy(sig)
+    feats.update({
+        f"{prefix}burstiness": float(burstiness),
+        f"{prefix}band_powers": band_powers,
+        f"{prefix}band_ratios": band_ratios,
+        f"{prefix}spectrogram_features": spectrogram_feats,
+        f"{prefix}spectral_flux": float(spectral_flux),
+        f"{prefix}wavelet_energy_features": wavelet_energy_feats,
+    })
+
+    ## New regime transition/change point features
+    candidates = Candidates(peak_times.tolist(), magnitudes.tolist(), run_length)
+    candidates.detect_regimes()
+    regime_dominance = compute_regime_dominance(candidates)
+    rms_change_points = compute_rms_change_points(sig, window_size=int(fs), threshold=2.0)
+
+    feats.update({
+        f"{prefix}regime_dominance": float(regime_dominance),
+        f"{prefix}rms_change_points": int(rms_change_points),
+    })
+
+    # Peak magnitude stats
+    skew_peak_mag, kurt_peak_mag, iqr_peak_mag = peak_magnitude_stats(magnitudes)
+    feats.update({
+        f"{prefix}skew_peak_magnitude": float(skew_peak_mag),
+        f"{prefix}kurtosis_peak_magnitude": float(kurt_peak_mag),
+        f"{prefix}iqr_peak_magnitude": float(iqr_peak_mag),
+    })
+
     return feats
 
 
@@ -493,7 +536,7 @@ def process_directory(directory_name, verbose=False, fs_default=10000):
 
     feature_df = pd.DataFrame(extracted_features)
     feature_df.fillna(0, inplace=True)
-    out_path = Path("data/features.csv")
+    out_path = Path("data/features_updated.csv")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     feature_df.to_csv(out_path, index=False)
     print(f"Features saved successfully to '{out_path}'!")

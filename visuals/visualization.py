@@ -14,21 +14,41 @@ def visualize_csv_data(csv_path: str):
     t = data['Time']
     a0 = data['ai0']
     a1 = data['ai1']
+    
+    # Keep y axis the same for both plots and don't let the graphs y- axis go smaller than the interval [-.1, .1]
+    y_min = min(min(a0), min(a1)) * 1.1  # Add some padding
+    y_max = max(max(a0), max(a1)) * 1.1  # Add some padding
+    if y_min > -0.1:
+        y_min = -0.1
+    if y_max < 0.1:
+        y_max = 0.1
 
     fig, (ax0, ax1) = plt.subplots(2, 1, sharex=True)
     ax0.plot(t, a0)
     ax0.set_title("ai0")
     ax0.set_ylabel("Amplitude")
+    ax0.set_ylim(y_min, y_max)
     ax0.grid(True)
 
     ax1.plot(t, a1)
     ax1.set_title("ai1")
     ax1.set_xlabel("Time (s)")
     ax1.set_ylabel("Amplitude")
+    ax1.set_ylim(y_min, y_max)
     ax1.grid(True)
 
     plt.tight_layout()
     return fig  # Return the figure
+
+
+# # Example usage:
+# if __name__ == "__main__":
+#     csv_path = "data\CSV\MATLAB 1-11 PM Thu, Oct 31, 2024 Run0 .csv"
+#     fig = visualize_csv_data(csv_path)
+#     # create the output directory if it doesn't exist
+#     os.makedirs("data/boiling_plots", exist_ok=True)
+#     fig.savefig("data/boiling_plots/example_plot.png")
+#     plt.close(fig)
 
 if __name__ == "__main__":
     count = 0
@@ -37,10 +57,10 @@ if __name__ == "__main__":
             csv_path = path.join("data/CSV", file)
             fig = visualize_csv_data(csv_path)
             save_path = path.splitext(csv_path)[0] + ".png"
-            fig.savefig(path.join("data/boiling_plots", path.basename(save_path)))
+            fig.savefig(path.join("visuals/boiling_plots", path.basename(save_path)))
             plt.close(fig)
             count += 1
-    print(f"Done. Saved {count} plot(s) to data/boiling_plots/")
+    print(f"Done. Saved {count} plot(s) to visuals/boiling_plots/")
 
 
 

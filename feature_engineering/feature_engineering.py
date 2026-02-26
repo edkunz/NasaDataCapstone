@@ -5,33 +5,29 @@ from pathlib import Path
 import time
 from scipy.stats import skew, kurtosis
 import pywt
+import networkx as nx
 
 ## New feature engineering (can incorporate into extract_all_features)
- 
+
 ## Time-domain statistical features
-def compute_rms(signal_data):
+def compute_rms(signal_data): # implemented
     signal_data = np.asarray(signal_data)
     return np.sqrt(np.mean(signal_data ** 2))
 
-def compute_skewness(signal_data):
+def compute_skewness(signal_data): # implemented
     return skew(signal_data)
 
-def compute_kurtosis(signal_data):
+def compute_kurtosis(signal_data): #implemented
     return kurtosis(signal_data)
 
-def compute_crest_factor(signal_data):
+def compute_crest_factor(signal_data): # implemented
     rms = compute_rms(signal_data)
     if rms == 0:
         return 0
     return np.max(np.abs(signal_data)) / rms
 
 ## Improved peak based features
-def compute_peak_rate(num_peaks, duration_seconds):
-    if duration_seconds == 0:
-        return 0
-    return num_peaks / duration_seconds
-
-def peak_magnitude_stats(peak_magnitudes):
+def peak_magnitude_stats(peak_magnitudes): # implemented
     if len(peak_magnitudes) == 0:
         return 0, 0, 0
     return (
@@ -40,12 +36,12 @@ def peak_magnitude_stats(peak_magnitudes):
         np.percentile(peak_magnitudes, 75) - np.percentile(peak_magnitudes, 25)
     )
 
-def compute_burstiness(inter_peak_times):
-    if len(inter_peak_times) < 2:
+def compute_burstiness(inter_peak_times): #implemented
+    if len(inter_peak_times) < 2 or np.mean(inter_peak_times) == 0:
         return 0
     return np.std(inter_peak_times) / np.mean(inter_peak_times)
 
-def compute_band_powers(signal_data, fs=1000, bands=None):
+def compute_band_powers(signal_data, fs=1000, bands=None): #implemented
     if bands is None:
         bands = {
             "low": (0, 200),
@@ -65,14 +61,14 @@ def compute_band_powers(signal_data, fs=1000, bands=None):
     return band_powers
 
 
-def compute_band_ratios(band_powers):
+def compute_band_ratios(band_powers): #implemented
     low = band_powers.get("low_band_power", 0)
     high = band_powers.get("high_band_power", 0)
     return {
         "high_to_low_ratio": high / low if low > 0 else 0
     }
 
-def compute_spectrogram_features(signal_data, fs=1000):
+def compute_spectrogram_features(signal_data, fs=1000): #implemented
     freqs, times, Sxx = signal.spectrogram(signal_data, fs=fs)
     Sxx_norm = Sxx / (np.sum(Sxx, axis=0, keepdims=True) + 1e-12)
 
@@ -85,13 +81,13 @@ def compute_spectrogram_features(signal_data, fs=1000):
     }
 
 
-def compute_spectral_flux(signal_data, fs=1000):
+def compute_spectral_flux(signal_data, fs=1000): #implemented
     freqs, times, Sxx = signal.spectrogram(signal_data, fs=fs)
     flux = np.sum(np.diff(Sxx, axis=1) ** 2, axis=0)
     return np.mean(flux)
 
 
-def compute_wavelet_energy(signal_data, wavelet="morl", scales=None):
+def compute_wavelet_energy(signal_data, wavelet="morl", scales=None): #implemented
     if scales is None:
         scales = np.arange(1, 64)
 
@@ -106,7 +102,7 @@ def compute_wavelet_energy(signal_data, wavelet="morl", scales=None):
 
 
 ## Regime transition/change point features
-def compute_rms_change_points(signal_data, window_size=1000, threshold=2.0):
+def compute_rms_change_points(signal_data, window_size=1000, threshold=2.0): #implemented
     rms_values = []
     for i in range(0, len(signal_data) - window_size, window_size):
         rms_values.append(compute_rms(signal_data[i:i+window_size]))
@@ -115,7 +111,7 @@ def compute_rms_change_points(signal_data, window_size=1000, threshold=2.0):
     diffs = np.abs(np.diff(rms_values))
     return np.sum(diffs > threshold * np.std(rms_values))
 
-def compute_regime_dominance(candidates):
+def compute_regime_dominance(candidates): #implemented
     if not candidates.candidate_lst:
         return 0
     hit_counts = [len(c.hit_indices) for c in candidates.candidate_lst]
@@ -215,7 +211,6 @@ class Candidates:
     def prune_insufficient_hits(self, verbose=None):
         self.candidate_lst = [c for c in self.candidate_lst if c.hits >= 3 and c.binomial_test(self.p_null, alpha=self.alpha / max(1, len(self.candidate_lst)))]
     def group_candidates_by_similarity(self, threshold=0.75, verbose=None):
-        import networkx as nx
         candidates = self.candidate_lst
         n = len(candidates)
         ids = [c.id for c in candidates]
@@ -354,39 +349,31 @@ def compute_spectral_bandwidth(signal_data, fs):
     return np.sqrt(np.sum(psd * (freqs - centroid) ** 2) / np.sum(psd))
 
 
-# New Features
+# Cross-channel features
 
-def _peak_mags(sig, fs):
-    # helper function: extracts peak magnitudes from a single accelerometer signal.
-    peak_indices, peak_times, peak_heights = get_peaks(sig, fs)
-    return np.asarray(peak_heights, dtype=float)
-
-def num_peak_mag_high_diff(signal1, signal2, fs, z_thresh=2.0):
-    # counts how many peaks have a large magnitude difference between accelerometer 0 and 1
-    mags1 = _peak_mags(signal1, fs)
-    mags2 = _peak_mags(signal2, fs)
-    n = min(len(mags1), len(mags2))
-    if n < 3:
+def num_peak_mag_high_diff(signal1, signal2, fs, z_thresh=2.0, max_time_gap=0.05):
+    idx1, times1, mags1 = get_peaks(signal1, fs)
+    idx2, times2, mags2 = get_peaks(signal2, fs)
+    if len(times1) < 3 or len(times2) < 3:
         return 0
-    diffs = np.abs(mags1[:n] - mags2[:n])
+    # Match each peak in signal1 to the nearest peak in signal2 by time
+    paired_diffs = []
+    for i, t1 in enumerate(times1):
+        j = int(np.argmin(np.abs(times2 - t1)))
+        # Only pair if the nearest peak is within a reasonable time window
+        if np.abs(times2[j] - t1) <= max_time_gap:
+            paired_diffs.append(abs(mags1[i] - mags2[j]))
+    if len(paired_diffs) < 3:
+        return 0
+    diffs = np.array(paired_diffs)
     thr = np.mean(diffs) + z_thresh * np.std(diffs)
     return int(np.sum(diffs > thr))
 
 
-def avg_peak_mag_diff(signal1, signal2, fs):
-    # computes the average difference in peak magnitude between the two accelerometers.
-    mags1 = _peak_mags(signal1, fs)
-    mags2 = _peak_mags(signal2, fs)
-    n = min(len(mags1), len(mags2))
-    if n == 0:
-        return 0.0
-    return float(np.mean(np.abs(mags1[:n] - mags2[:n])))
-
-
 def peak_mag_correlation(signal1, signal2, fs):
     # measures how similar the peak magnitude patterns are between the two accelerometers.
-    mags1 = _peak_mags(signal1, fs)
-    mags2 = _peak_mags(signal2, fs)
+    idx1, times1, mags1 = get_peaks(signal1, fs)
+    idx2, times2, mags2 = get_peaks(signal2, fs)
     n = min(len(mags1), len(mags2))
     if n < 2:
         return 0.0
@@ -394,10 +381,10 @@ def peak_mag_correlation(signal1, signal2, fs):
     return float(0.0 if not np.isfinite(r) else r)
 
 
-
 def extract_channel_features(sig, t, fs, prefix):
     """
     Compute all features for one channel and prefix keys.
+    Excluded amplitude features: max_peak, median_peak, std_peak, sum_peak_magnitude, rms.
     """
     sig = np.asarray(sig)
     t = np.asarray(t, dtype=float)
@@ -412,36 +399,27 @@ def extract_channel_features(sig, t, fs, prefix):
     }
     peak_indices, peak_times, peak_heights = get_peaks(sig, fs, t=t)
     if len(peak_indices) <= 2:
-        # Still return spectral features; peak features become 0/NaN-safe later
         feats.update({
             f"{prefix}std_dev_time_diff": np.nan,
             f"{prefix}mean_time_diff": np.nan,
             f"{prefix}median_time_diff": np.nan,
-            f"{prefix}max_peak": np.nan,
-            f"{prefix}median_peak": np.nan,
-            f"{prefix}std_peak": np.nan,
             f"{prefix}peaks_per_second": np.nan,
-            f"{prefix}sum_peak_magnitude": np.nan,
             f"{prefix}percent_time_above_threshold": np.nan,
             f"{prefix}num_boilings": 0,
             f"{prefix}unused_peak_proportion": 0.0,
         })
         return feats
+
     magnitudes = sig[peak_indices]
     time_differences = np.diff(peak_times)
     feats.update({
         f"{prefix}std_dev_time_diff": float(np.std(time_differences)) if time_differences.size else np.nan,
         f"{prefix}mean_time_diff": float(np.mean(time_differences)) if time_differences.size else np.nan,
         f"{prefix}median_time_diff": float(np.median(time_differences)) if time_differences.size else np.nan,
-        f"{prefix}max_peak": float(np.max(magnitudes)),
-        f"{prefix}median_peak": float(np.median(magnitudes)),
-        f"{prefix}std_peak": float(np.std(magnitudes)),
         f"{prefix}peaks_per_second": float(len(peak_indices) / run_length) if run_length > 0 else np.nan,
-        f"{prefix}sum_peak_magnitude": float(np.sum(magnitudes)),
         f"{prefix}percent_time_above_threshold": float(np.mean(sig > np.min(magnitudes))),
-        })
+    })
 
-    # Use peak_times (seconds) for regime detection if that's what your code expects as "x"
     num_boilings, unused_peak_proportion = get_boilings_data(
         x=peak_times.tolist(),
         y=magnitudes.tolist(),
@@ -451,29 +429,70 @@ def extract_channel_features(sig, t, fs, prefix):
         f"{prefix}num_boilings": int(num_boilings),
         f"{prefix}unused_peak_proportion": float(unused_peak_proportion),
     })
+
+    ## Time-domain statistical features (crest_factor kept as it's a ratio, not raw amplitude)
+    skewness = compute_skewness(sig)
+    kurt = compute_kurtosis(sig)
+    crest_factor = compute_crest_factor(sig)
+    feats.update({
+        f"{prefix}skewness": float(skewness),
+        f"{prefix}kurtosis": float(kurt),
+        f"{prefix}crest_factor": float(crest_factor),
+    })
+
+    ## Improved peak based features
+    burstiness = compute_burstiness(time_differences)
+    band_powers = compute_band_powers(sig, fs)
+    band_ratios = compute_band_ratios(band_powers)
+    spectrogram_feats = compute_spectrogram_features(sig, fs)
+    spectral_flux = compute_spectral_flux(sig, fs)
+    wavelet_energy_feats = compute_wavelet_energy(sig)
+    feats.update({
+        f"{prefix}burstiness": float(burstiness),
+        f"{prefix}band_powers": band_powers,
+        f"{prefix}band_ratios": band_ratios,
+        f"{prefix}spectrogram_features": spectrogram_feats,
+        f"{prefix}spectral_flux": float(spectral_flux),
+        f"{prefix}wavelet_energy_features": wavelet_energy_feats,
+    })
+
+    ## Regime transition/change point features
+    candidates = Candidates(peak_times.tolist(), magnitudes.tolist(), run_length)
+    candidates.detect_regimes()
+    regime_dominance = compute_regime_dominance(candidates)
+    rms_change_points = compute_rms_change_points(sig, window_size=int(fs), threshold=2.0)
+    feats.update({
+        f"{prefix}regime_dominance": float(regime_dominance),
+        f"{prefix}rms_change_points": int(rms_change_points),
+    })
+
+    ## Peak magnitude shape stats (distribution shape, not raw amplitude)
+    skew_peak_mag, kurt_peak_mag, iqr_peak_mag = peak_magnitude_stats(magnitudes)
+    feats.update({
+        f"{prefix}skew_peak_magnitude": float(skew_peak_mag),
+        f"{prefix}kurtosis_peak_magnitude": float(kurt_peak_mag),
+        f"{prefix}iqr_peak_magnitude": float(iqr_peak_mag),
+    })
+
     return feats
 
 
 def extract_all_features(file, fs_default=10000):
     data = pd.read_csv(file, index_col="Time")
-    # time index from CSV (assumed numeric seconds if your CSV is like that)
     t = data.index.to_numpy()
     fs = infer_fs_from_time_index(t, fs_default=fs_default)
-    # Choose columns 0 and 1 as a0/a1
     a0 = data.iloc[:, 0].to_numpy()
     a1 = data.iloc[:, 1].to_numpy()
     features = {"file_name": Path(file).name}
     features.update(extract_channel_features(a0, t, fs, prefix="a0_"))
     features.update(extract_channel_features(a1, t, fs, prefix="a1_"))
-    # New features involving both channels
+    # Cross-channel features (avg_peak_mag_diff removed as raw amplitude)
     features["num_peak_mag_high_diff"] = num_peak_mag_high_diff(a0, a1, fs)
-    features["avg_peak_mag_diff"] = avg_peak_mag_diff(a0, a1, fs)
     features["peak_mag_correlation"] = peak_mag_correlation(a0, a1, fs)
     return features
 
 
 def process_directory(directory_name, verbose=False, fs_default=10000):
-    # avoid __file__ issues in notebooks
     try:
         script_dir = Path(__file__).resolve().parent
         directory = (script_dir / directory_name).resolve()
@@ -489,11 +508,11 @@ def process_directory(directory_name, verbose=False, fs_default=10000):
 
     feature_df = pd.DataFrame(extracted_features)
     feature_df.fillna(0, inplace=True)
-    out_path = Path("data/features.csv")
+    out_path = Path("../data/features_final.csv")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     feature_df.sort_values("file_name", inplace=True)
-    feature_df.to_csv(out_path, index=False, )
+    feature_df.to_csv(out_path, index=False)
     print(f"Features saved successfully to '{out_path}'!")
-    
+
 if __name__ == "__main__":
-    process_directory(directory_name="data/CSV", verbose=True, fs_default=10000)
+    process_directory(directory_name="../data/CSV", verbose=True, fs_default=10000)

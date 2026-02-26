@@ -8,5 +8,10 @@ umap-learn
 hdbscan
 jupyter
 ipywidgets
+<<<<<<< HEAD
 networkx
 pywavelets
+=======
+plotly
+
+>>>>>>> 8d551f71735a8fb095dd24b05c0855b439b54450

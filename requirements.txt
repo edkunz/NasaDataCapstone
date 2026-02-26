@@ -8,3 +8,4 @@ umap-learn
 hdbscan
 jupyter
 ipywidgets
+plotly

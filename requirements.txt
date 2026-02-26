@@ -8,3 +8,5 @@ umap-learn
 hdbscan
 jupyter
 ipywidgets
+networkx
+pywavelets

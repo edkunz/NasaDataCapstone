@@ -45,8 +45,8 @@ def compute_band_powers(signal_data, fs=1000, bands=None): #implemented
     if bands is None:
         bands = {
             "low": (0, 200),
-            "mid": (200, 800),
-            "high": (800, fs // 2)
+            "mid": (200, 400),
+            "high": (400, fs // 2)
         }
 
     freqs, psd = signal.welch(signal_data, fs=fs, nperseg=256)
@@ -447,14 +447,26 @@ def extract_channel_features(sig, t, fs, prefix):
     spectrogram_feats = compute_spectrogram_features(sig, fs)
     spectral_flux = compute_spectral_flux(sig, fs)
     wavelet_energy_feats = compute_wavelet_energy(sig)
-    feats.update({
-        f"{prefix}burstiness": float(burstiness),
-        f"{prefix}band_powers": band_powers,
-        f"{prefix}band_ratios": band_ratios,
-        f"{prefix}spectrogram_features": spectrogram_feats,
-        f"{prefix}spectral_flux": float(spectral_flux),
-        f"{prefix}wavelet_energy_features": wavelet_energy_feats,
-    })
+
+    # Flatten everything properly with prefixes
+    feats[f"{prefix}burstiness"] = float(burstiness)
+    feats[f"{prefix}spectral_flux"] = float(spectral_flux)
+
+    # Expand band powers
+    for k, v in band_powers.items():
+        feats[f"{prefix}{k}"] = float(v)
+
+    # Expand band ratios
+    for k, v in band_ratios.items():
+        feats[f"{prefix}{k}"] = float(v)
+
+    # Expand spectrogram features
+    for k, v in spectrogram_feats.items():
+        feats[f"{prefix}{k}"] = float(v)
+
+    # Expand wavelet energy features
+    for k, v in wavelet_energy_feats.items():
+        feats[f"{prefix}{k}"] = float(v)
 
     ## Regime transition/change point features
     candidates = Candidates(peak_times.tolist(), magnitudes.tolist(), run_length)
@@ -495,7 +507,7 @@ def extract_all_features(file, fs_default=10000):
 def process_directory(directory_name, verbose=False, fs_default=10000):
     try:
         script_dir = Path(__file__).resolve().parent
-        directory = (script_dir / directory_name).resolve()
+        directory = (Path.cwd() / directory_name).resolve()
     except NameError:
         directory = (Path.cwd() / directory_name).resolve()
     extracted_features = []
@@ -508,11 +520,11 @@ def process_directory(directory_name, verbose=False, fs_default=10000):
 
     feature_df = pd.DataFrame(extracted_features)
     feature_df.fillna(0, inplace=True)
-    out_path = Path("../data/features_final.csv")
+    out_path = Path("data/features_final.csv")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     feature_df.sort_values("file_name", inplace=True)
     feature_df.to_csv(out_path, index=False)
     print(f"Features saved successfully to '{out_path}'!")
 
 if __name__ == "__main__":
-    process_directory(directory_name="../data/CSV", verbose=True, fs_default=10000)
+    process_directory(directory_name="data/CSV", verbose=True, fs_default=10000)

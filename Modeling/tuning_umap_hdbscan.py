@@ -96,7 +96,7 @@ def load_labels():
 
 def make_outdir():
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    outdir = Path(OUT_BASE) / f"sweep_{ts}"
+    outdir = Path(OUT_BASE) / f"tuning_analyze_{ts}"
     (outdir / "plots").mkdir(parents=True, exist_ok=True)
     return outdir
 
@@ -279,6 +279,8 @@ def main():
 
     top = df.head(20)
     (outdir / "top_ranked.txt").write_text(top.to_string(index=False))
+    #Save images
+    export_clusters_for_selected_tunings(outdir, file_names, X_scaled)
 
     print(f"\nSaved everything to: {outdir}")
     print("\nTop 10 combos:")
@@ -286,6 +288,162 @@ def main():
         "score","n_clusters","noise_ratio","silhouette_non_noise","ARI_multiclass_1to7",
         "umap_n_neighbors","umap_min_dist","hdb_min_cluster_size","hdb_min_samples","hdb_epsilon"
     ]])
+
+
+# Cluster PNG export helpers by tuning setting
+import shutil
+
+def _sanitize(s: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9._-]+", "_", str(s))
+
+def find_png_for_file(file_name: str, source_dirs):
+    """
+    Try to find a PNG for a given file_name by searching under source_dirs.
+    We match either exact stem or substring match (common when file_name has spaces).
+    """
+    target = _sanitize(file_name)
+    candidates = []
+
+    for d in source_dirs:
+        d = Path(d)
+        if not d.exists():
+            continue
+
+        # Fast path: exact match
+        exact = list(d.rglob(f"{target}.png"))
+        if exact:
+            return exact[0]
+
+        # Broader: any PNG containing the sanitized filename
+        for p in d.rglob("*.png"):
+            if target in _sanitize(p.stem):
+                candidates.append(p)
+
+    # If multiple matches, return the shortest path (usually most direct)
+    if candidates:
+        candidates = sorted(candidates, key=lambda x: len(str(x)))
+        return candidates[0]
+
+    return None
+
+
+def export_cluster_pngs_for_tuning(
+    *,
+    outdir: Path,
+    file_names: np.ndarray,
+    X_scaled: np.ndarray,
+    tuning_name: str,
+    umap_params: dict,
+    hdb_params: dict,
+    source_png_dirs: list,
+):
+    """
+    Recompute UMAP embedding + HDBSCAN clustering for a single tuning and export PNGs into:
+      outdir/cluster_exports/<tuning_name>/cluster_<id>/
+    """
+    export_root = Path(outdir) / "cluster_exports" / tuning_name
+    export_root.mkdir(parents=True, exist_ok=True)
+
+    reducer = umap.UMAP(
+        n_neighbors=umap_params["n_neighbors"],
+        min_dist=umap_params["min_dist"],
+        n_components=2,
+        metric=umap_params.get("metric", "euclidean"),
+        random_state=umap_params.get("random_state", 42),
+    )
+    emb = reducer.fit_transform(X_scaled)
+
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=hdb_params["min_cluster_size"],
+        min_samples=hdb_params.get("min_samples", None),
+        metric=hdb_params.get("metric", "euclidean"),
+        cluster_selection_epsilon=hdb_params.get("cluster_selection_epsilon", 0.0),
+        cluster_selection_method=hdb_params.get("cluster_selection_method", "eom"),
+    )
+    labels = clusterer.fit_predict(emb)
+
+    # Save assignment table
+    assign_df = pd.DataFrame({
+        "file_name": file_names,
+        "cluster": labels,
+        "umap_n_neighbors": umap_params["n_neighbors"],
+        "umap_min_dist": umap_params["min_dist"],
+        "hdb_min_cluster_size": hdb_params["min_cluster_size"],
+        "hdb_min_samples": hdb_params.get("min_samples", None),
+        "hdb_epsilon": hdb_params.get("cluster_selection_epsilon", 0.0),
+        "hdb_selection": hdb_params.get("cluster_selection_method", "eom"),
+    })
+    assign_df.to_csv(export_root / "cluster_assignments.csv", index=False)
+
+    missing = []
+    unique_clusters = sorted(set(labels.tolist()))
+    for c in unique_clusters:
+        (export_root / f"cluster_{c}").mkdir(parents=True, exist_ok=True)
+
+    # Copy PNGs into cluster folders
+    for fn, c in zip(file_names, labels):
+        png_path = find_png_for_file(fn, source_png_dirs)
+        if png_path is None:
+            missing.append(fn)
+            continue
+
+        dest = export_root / f"cluster_{c}" / png_path.name
+        try:
+            shutil.copy2(png_path, dest)
+        except Exception:
+            # If duplicate names collide, include sanitized filename
+            dest = export_root / f"cluster_{c}" / f"{_sanitize(fn)}__{png_path.name}"
+            shutil.copy2(png_path, dest)
+
+    # Report missing
+    if missing:
+        (export_root / "missing_pngs.txt").write_text("\n".join(map(str, missing)))
+
+    print(f"[export] {tuning_name}: wrote {len(assign_df)} assignments to {export_root}")
+    print(f"[export] {tuning_name}: missing PNGs for {len(missing)} files")
+
+
+def export_clusters_for_selected_tunings(outdir: Path, file_names, X_scaled):
+    """
+    Edit these to the 3 tunings you care about.
+    These are the 3 common candidates you were comparing:
+      1) nn=10, md=0.1, mcs=30, ms=5, eps=0.0
+      2) nn=15, md=0.05, mcs=15, ms=5, eps=0.0
+      3) nn=7,  md=0.05, mcs=15, ms=5, eps=0.0
+    """
+
+    SOURCE_PNG_DIRS = [
+        "../data/CSV"
+    ]
+
+    SELECTED = [
+        dict(
+            tuning_name="UMAP_nn10_md0.10__HDB_mcs30_ms5_eps0.00",
+            umap_params=dict(n_neighbors=10, min_dist=0.10, metric="euclidean", random_state=42),
+            hdb_params=dict(min_cluster_size=30, min_samples=5, cluster_selection_epsilon=0.00, cluster_selection_method="eom"),
+        ),
+        dict(
+            tuning_name="UMAP_nn15_md0.05__HDB_mcs15_ms5_eps0.00",
+            umap_params=dict(n_neighbors=15, min_dist=0.05, metric="euclidean", random_state=42),
+            hdb_params=dict(min_cluster_size=15, min_samples=5, cluster_selection_epsilon=0.00, cluster_selection_method="eom"),
+        ),
+        dict(
+            tuning_name="UMAP_nn7_md0.05__HDB_mcs15_ms5_eps0.00",
+            umap_params=dict(n_neighbors=7, min_dist=0.05, metric="euclidean", random_state=42),
+            hdb_params=dict(min_cluster_size=15, min_samples=5, cluster_selection_epsilon=0.00, cluster_selection_method="eom"),
+        ),
+    ]
+
+    for item in SELECTED:
+        export_cluster_pngs_for_tuning(
+            outdir=Path(outdir),
+            file_names=file_names,
+            X_scaled=X_scaled,
+            tuning_name=item["tuning_name"],
+            umap_params=item["umap_params"],
+            hdb_params=item["hdb_params"],
+            source_png_dirs=SOURCE_PNG_DIRS,
+        )
 
 
 if __name__ == "__main__":

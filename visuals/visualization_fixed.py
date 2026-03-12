@@ -45,9 +45,9 @@ if __name__ == "__main__":
             fig = visualize_csv_data(csv_path)
             save_path = path.splitext(csv_path)[0] + ".png"
             # Optionally save to a separate folder, e.g. data/boiling_plots_fixed
-            out_dir = path.join("data", "boiling_plots_fixed")
+            out_dir = path.join("visuals", "boiling_plots_fixed")
             os.makedirs(out_dir, exist_ok=True)
             fig.savefig(path.join(out_dir, path.basename(save_path)))
             plt.close(fig)
             count += 1
-    print(f"Done. Saved {count} plot(s) to data/boiling_plots_fixed/")
+    print(f"Done. Saved {count} plot(s) to visuals/boiling_plots_fixed/")

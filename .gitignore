@@ -6,3 +6,12 @@ PreviousWork/
 
 # ignore .gitignore file itself
 .gitignore
+
+# Ignore the entire Vite/Electron app folder
+App/
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.ENV/

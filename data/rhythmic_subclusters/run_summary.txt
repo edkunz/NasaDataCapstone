@@ -1,0 +1,34 @@
+Main cluster CSV: /Users/hailey/DATA 451/NasaDataCapstone/Modeling/umap_hdbscan_cluster_output.csv
+Feature CSV: /Users/hailey/DATA 451/NasaDataCapstone/data/features_no_time_corr.csv
+Main cluster column: cluster
+Target main cluster: 2
+Rows in target cluster before merge: 176
+Rows matched with features: 176
+Feature count used: 62
+UMAP n_neighbors: 8
+UMAP min_dist: 0.01
+UMAP n_components: 2
+UMAP metric: euclidean
+HDBSCAN min_cluster_size: 6
+HDBSCAN min_samples: 3
+PNG copied: 176
+PNG missing: 0
+
+Subcluster counts:
+  subcluster 0: 34
+  subcluster 1: 49
+  subcluster 2: 8
+  subcluster 3: 13
+  subcluster 4: 72
+
+Separation scores:
+  n_total_points: 176
+  n_noise: 0
+  n_clustered_points: 176
+  n_clusters_excluding_noise: 5
+  silhouette: 0.5525152683258057
+  davies_bouldin: 0.4857627812680979
+  calinski_harabasz: 691.8638821204268
+
+Missing PNG matches:
+  None

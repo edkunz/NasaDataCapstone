@@ -1,0 +1,2 @@
+n_total_points,n_noise,n_clustered_points,n_clusters_excluding_noise,silhouette,davies_bouldin,calinski_harabasz
+176,0,176,5,0.5525152683258057,0.4857627812680979,691.8638821204268

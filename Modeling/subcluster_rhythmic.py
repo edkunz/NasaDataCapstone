@@ -34,6 +34,18 @@ def save_boilings_plot(embedding, boilings, output_dir):
     plt.savefig(output_dir / "rhythmic_subclusters_boilings_plot.png")
     plt.close()
 
+def save_hand_labeled_plot(embedding, labels, output_dir):
+    plt.figure(figsize=(8, 6))
+    plt.scatter(embedding[:, 0], embedding[:, 1], c=labels, cmap="Set2", s=30)
+    plt.title("Rhythmic Subclusters with Hand Labels")
+    plt.xlabel("UMAP1")
+    plt.ylabel("UMAP2")
+    plt.colorbar(label="Hand Label")
+    plt.tight_layout()
+    plt.savefig(output_dir / "rhythmic_subclusters_hand_labels_plot.png")
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cluster-csv", required=True)
@@ -54,6 +66,7 @@ def main():
     df_cluster = pd.read_csv(cluster_csv)
     df_features = pd.read_csv(feature_csv)
     df_boilings = pd.read_csv(project_root / "data" / "features_final.csv")  # for a0_num_boilings
+    df_labels = pd.read_excel(project_root / "data" / "Labeling.xlsx")  # for hand labels
 
     # --- merge ---
     if "name" in df_cluster.columns:
@@ -76,6 +89,11 @@ def main():
         boiling_name_col = df_boilings.columns[0]
     df_boilings["match_name"] = df_boilings[boiling_name_col].astype(str)
 
+    # prepare labels for merge
+    df_labels = df_labels.dropna(subset=["Label"]).copy()
+    df_labels["Label"] = df_labels["Label"].astype(int)
+    df_labels["match_name"] = "MATLAB " + df_labels["File"].astype(str)
+
     df_merged = df_cluster.merge(df_features, on="match_name", how="inner")
 
     if df_merged.empty:
@@ -88,6 +106,13 @@ def main():
             on="match_name",
             how="left"
         )
+
+    # merge labels data
+    df_merged = df_merged.merge(
+        df_labels[["match_name", "Label"]],
+        on="match_name",
+        how="left"
+    )
 
     print(f"Merged rows: {len(df_merged)}")
 
@@ -109,9 +134,14 @@ def main():
     X = df_target[numeric_cols].copy()
 
     # drop NaNs
-    X = X.dropna()
+    keep_mask = ~X.isna().any(axis=1)
+    X = X.loc[keep_mask]
+    df_target = df_target.loc[keep_mask]
 
-    print(f"Feature matrix shape: {X.shape}")
+    if df_target.empty:
+        raise ValueError("All rows were dropped due to NaN values.")
+
+    print(f"Feature matrix shape after cleaning: {X.shape}")
 
     # --- scale ---
     scaler = StandardScaler()
@@ -126,6 +156,15 @@ def main():
         random_state=42
     )
     embedding = reducer.fit_transform(X_scaled)
+
+    # plot colored by hand labels if available
+    if "Label" in df_target.columns:
+        valid_labels_mask = ~df_target["Label"].isna()
+        if valid_labels_mask.sum() > 0:
+            hand_labels = df_target.loc[valid_labels_mask, "Label"].values
+            emb_plot = embedding[valid_labels_mask.values]
+            save_hand_labeled_plot(emb_plot, hand_labels, output_root)
+            print("Hand-labeled plot saved!")
 
     # --- HDBSCAN ---
     clusterer = hdbscan.HDBSCAN(

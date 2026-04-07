@@ -22,6 +22,17 @@ def save_plots(embedding, labels, output_dir):
     plt.savefig(output_dir / "rhythmic_subclusters_plot.png")
     plt.close()
 
+def save_boilings_plot(embedding, boilings, output_dir):
+    plt.figure(figsize=(8, 6))
+    scatter = plt.scatter(embedding[:, 0], embedding[:, 1], c=boilings, cmap="viridis", s=30)
+    plt.title("Rhythmic Subclusters Colored by Number of Boilings")
+    plt.xlabel("UMAP1")
+    plt.ylabel("UMAP2")
+    cbar = plt.colorbar(scatter)
+    cbar.set_label("Number of Boilings")
+    plt.tight_layout()
+    plt.savefig(output_dir / "rhythmic_subclusters_boilings_plot.png")
+    plt.close()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -42,6 +53,7 @@ def main():
 
     df_cluster = pd.read_csv(cluster_csv)
     df_features = pd.read_csv(feature_csv)
+    df_boilings = pd.read_csv(project_root / "data" / "features_final.csv")  # for a0_num_boilings
 
     # --- merge ---
     if "name" in df_cluster.columns:
@@ -57,10 +69,25 @@ def main():
     df_cluster["match_name"] = df_cluster[name_col].astype(str)
     df_features["match_name"] = df_features[feat_name_col].astype(str)
 
+    # also prepare boilings for merge
+    if "name" in df_boilings.columns:
+        boiling_name_col = "name"
+    else:
+        boiling_name_col = df_boilings.columns[0]
+    df_boilings["match_name"] = df_boilings[boiling_name_col].astype(str)
+
     df_merged = df_cluster.merge(df_features, on="match_name", how="inner")
 
     if df_merged.empty:
         raise ValueError("Merge failed: no matching rows")
+
+    # merge boilings data
+    if "a0_num_boilings" in df_boilings.columns:
+        df_merged = df_merged.merge(
+            df_boilings[["match_name", "a0_num_boilings"]],
+            on="match_name",
+            how="left"
+        )
 
     print(f"Merged rows: {len(df_merged)}")
 
@@ -145,6 +172,18 @@ def main():
 
     # plot
     save_plots(embedding, sub_labels, output_root)
+    
+    # plot colored by boilings if available (use _y suffix from features_final.csv)
+    boilings_col = None
+    if "a0_num_boilings_y" in df_target.columns:
+        boilings_col = "a0_num_boilings_y"
+    elif "a0_num_boilings" in df_target.columns:
+        boilings_col = "a0_num_boilings"
+    
+    if boilings_col is not None:
+        boilings_vals = df_target[boilings_col].values
+        save_boilings_plot(embedding, boilings_vals, output_root)
+        print("Boilings plot saved!")
 
     print("\nDone. Outputs saved to:")
     print(output_root)

@@ -472,10 +472,15 @@ def extract_channel_features(sig, t, fs, prefix):
             f"{prefix}skew_peak_magnitude": np.nan,
             f"{prefix}kurtosis_peak_magnitude": np.nan,
             f"{prefix}iqr_peak_magnitude": np.nan,
+            # New amplitude features
+            f"{prefix}mean_peak_magnitude": np.nan,
+            f"{prefix}max_peak_magnitude": np.nan,
+            f"{prefix}std_peak_magnitude": np.nan,
+            f"{prefix}max_to_mean_peak_ratio": np.nan,
         })
         return feats
 
-    magnitudes = sig[peak_indices]
+    magnitudes = np.abs(sig[peak_indices])  # absolute value to handle negative peaks
     time_differences = np.diff(peak_times)
 
     feats.update({
@@ -544,6 +549,17 @@ def extract_channel_features(sig, t, fs, prefix):
         f"{prefix}iqr_peak_magnitude": float(iqr_peak_mag),
     })
 
+    ## Amplitude distribution features (absolute value to capture both positive and negative peaks)
+    mean_mag = float(np.mean(magnitudes))
+    max_mag  = float(np.max(magnitudes))
+    std_mag  = float(np.std(magnitudes))
+    feats.update({
+        f"{prefix}mean_peak_magnitude":    mean_mag,
+        f"{prefix}max_peak_magnitude":     max_mag,
+        f"{prefix}std_peak_magnitude":     std_mag,
+        f"{prefix}max_to_mean_peak_ratio": max_mag / mean_mag if mean_mag > 0 else np.nan,
+    })
+
     return feats
 
 
@@ -584,11 +600,11 @@ def process_directory(directory_name, verbose=False, fs_default=10000):
     # Apply linear detrending to time-correlated features (r > 0.25)
     feature_df = detrend_features(feature_df)
 
-    out_path = Path("data/features_no_time_corr.csv")
+    out_path = Path("data/features.csv")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     feature_df.to_csv(out_path, index=False)
     print(f"Features saved successfully to '{out_path}'!")
 
 
 if __name__ == "__main__":
-    process_directory(directory_name="../data/CSV", verbose=True, fs_default=10000)
+    process_directory(directory_name="data/CSV", verbose=True, fs_default=10000)

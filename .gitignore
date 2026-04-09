@@ -1,0 +1,56 @@
+# Local-only documentation
+README_UMAP_HDBSCAN_LOCAL.md
+README_PRODUCTION_LOCAL.md
+
+# Data and production directories
+/data/
+/Production/
+/App/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+.env
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Logs
+*.log
+logs/
+
+# MATLAB
+*.mat
+*.asv
+
+# Compiled files
+*.so
+*.dll
+*.exe

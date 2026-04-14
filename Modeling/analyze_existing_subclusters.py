@@ -44,7 +44,7 @@ def main():
 
     # CHANGE THESE ONLY IF NEEDED
     subcluster_csv = project_root / "data" / "rhythmic_subclusters" / "rhythmic_subcluster_output.csv"
-    feature_csv = project_root / "data" / "features_no_time_corr.csv"
+    feature_csv = project_root / "data" / "features.csv"
     output_dir = project_root / "data" / "rhythmic_subclusters"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -116,6 +116,14 @@ def main():
         .mean(numeric_only=True)
     )
     feature_means.to_csv(output_dir / "subcluster_feature_means_checked.csv")
+    
+    # check the standard deviation of features within clusters
+    feature_stds = (
+        pd.concat([X.reset_index(drop=True), y.reset_index(drop=True)], axis=1)
+        .groupby("subcluster")
+        .std(numeric_only=True)
+    )
+    feature_stds.to_csv(output_dir / "subcluster_feature_stds_checked.csv")
 
     # top differentiating features per cluster
     feature_diff_rows = []

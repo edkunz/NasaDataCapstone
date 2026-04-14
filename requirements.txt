@@ -10,3 +10,4 @@ jupyter
 ipywidgets
 plotly
 anywidget
+Pywavelets

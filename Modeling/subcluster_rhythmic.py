@@ -65,7 +65,7 @@ def main():
 
     df_cluster = pd.read_csv(cluster_csv)
     df_features = pd.read_csv(feature_csv)
-    df_boilings = pd.read_csv(project_root / "data" / "features_final.csv")  # for a0_num_boilings
+    df_boilings = pd.read_csv(project_root / "data" / "features.csv")  # for a0_num_boilings
     df_labels = pd.read_excel(project_root / "data" / "Labeling.xlsx")  # for hand labels
 
     # --- merge ---

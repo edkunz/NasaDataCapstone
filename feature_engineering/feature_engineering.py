@@ -570,6 +570,16 @@ def extract_all_features(file, fs_default=10000):
     a0 = data.iloc[:, 0].to_numpy()
     a1 = data.iloc[:, 1].to_numpy()
     features = {"file_name": Path(file).name}
+    # Add a check so that if at no time it goes above .1, we  place the features in a seperate csv called noise_features.csv
+    if not np.any(np.abs(a0) > 0.1) and not np.any(np.abs(a1) > 0.1):
+        out_path = Path("data/noise_features.csv")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        noise_feats = extract_channel_features(a0, t, fs, prefix="a0_")
+        noise_feats.update(extract_channel_features(a1, t, fs, prefix="a1_"))
+        noise_feats["file_name"] = Path(file).name
+        pd.DataFrame([noise_feats]).to_csv(out_path, index=False, mode='a', header=not out_path.exists())
+        print(f"File '{file}' classified as noise. Features saved to '{out_path}'.")
+        return {"file_name": Path(file).name, "is_noise": True}
     features.update(extract_channel_features(a0, t, fs, prefix="a0_"))
     features.update(extract_channel_features(a1, t, fs, prefix="a1_"))
     features["num_peak_mag_high_diff"] = num_peak_mag_high_diff(a0, a1, fs)

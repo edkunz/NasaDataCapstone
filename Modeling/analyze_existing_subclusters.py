@@ -62,8 +62,10 @@ def main():
 
     df_sub["match_name"] = df_sub[sub_name_col].apply(clean_run_name)
     df_feat["match_name"] = df_feat[feat_name_col].apply(clean_run_name)
-
-    df = df_sub.merge(df_feat, on="match_name", how="inner", suffixes=("_sub", "_feat"))
+    
+    
+    # For each file name in df_feat, take the features from df and create a new DataFrame active_boil_features_df
+    df = df_sub[df_sub["match_name"].isin(df_feat["match_name"])].copy()
 
     if df.empty:
         raise ValueError("Merge found 0 matching rows between subcluster file and features file.")

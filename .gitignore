@@ -54,3 +54,5 @@ logs/
 *.so
 *.dll
 *.exe
+
+.gitignore

@@ -1,9 +1,6 @@
-<<<<<<< HEAD
 # Ignore local gitignore overrides
 .gitignore
 
-=======
->>>>>>> 67f8b0c1e4da358ef26e3dc30789b41135e366c3
 # Local-only documentation
 README_UMAP_HDBSCAN_LOCAL.md
 README_PRODUCTION_LOCAL.md
@@ -13,12 +10,9 @@ README_PRODUCTION_LOCAL.md
 /Production/
 /App/
 
-<<<<<<< HEAD
 # Node
 node_modules/
 
-=======
->>>>>>> 67f8b0c1e4da358ef26e3dc30789b41135e366c3
 # Python
 __pycache__/
 *.py[cod]

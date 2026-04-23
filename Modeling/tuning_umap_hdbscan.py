@@ -1,4 +1,3 @@
-import os
 import itertools
 from datetime import datetime
 from pathlib import Path
@@ -17,17 +16,19 @@ from sklearn.metrics import adjusted_rand_score, silhouette_score
 
 
 # -----------------------------
-# Paths
+# Project-relative paths
 # -----------------------------
-project_root = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-FEATURES_CSV = project_root / "data" / "features.csv"
-LABELS_XLSX = project_root / "data" / "Labeling.xlsx"
+# keep your changed features file here
+FEATURES_CSV = PROJECT_ROOT / "data" / "non_noise_features.csv"
+LABELS_XLSX = PROJECT_ROOT / "data" / "Labeling.xlsx"
 
-CLUSTER_1_CSV = project_root / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "1" / "cluster_1.csv"
-CLUSTER_2_CSV = project_root / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "2" / "cluster_2.csv"
+# these two are only used to choose which runs belong to active boiling
+CLUSTER_1_CSV = PROJECT_ROOT / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "1" / "cluster_1.csv"
+CLUSTER_2_CSV = PROJECT_ROOT / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "2" / "cluster_2.csv"
 
-OUT_BASE = project_root / "visuals" / "hparam_tunes"
+OUT_BASE = PROJECT_ROOT / "visuals" / "hparam_tunes"
 
 
 # -----------------------------
@@ -52,8 +53,8 @@ def safe_parse_dict(s):
 
 def make_outdir():
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    outdir = Path(OUT_BASE) / f"tuning_active_boiling_{ts}"
-    (outdir / "plots").mkdir(parents=True, exist_ok=True)
+    outdir = OUT_BASE / f"tuning_active_boiling_{ts}"
+    outdir.mkdir(parents=True, exist_ok=True)
     return outdir
 
 
@@ -108,35 +109,55 @@ def find_png_for_file(file_name: str, source_dirs):
 # -----------------------------
 # Data loading
 # -----------------------------
-def load_active_boiling_inputs():
-    """
-    Combine cluster_1.csv and cluster_2.csv from the earlier notebook export.
-    These files define WHICH runs belong to active boiling.
-    """
-    df1 = pd.read_csv(CLUSTER_1_CSV)
-    df2 = pd.read_csv(CLUSTER_2_CSV)
-    df_clusters = pd.concat([df1, df2], ignore_index=True)
+def load_cluster_file_names(cluster_csv_path):
+    df = pd.read_csv(cluster_csv_path)
 
-    if "file_name" not in df_clusters.columns:
-        raise ValueError("Expected 'file_name' column in cluster_1.csv and cluster_2.csv")
+    if "file_name" in df.columns:
+        names = df["file_name"].astype(str).tolist()
+    elif "name" in df.columns:
+        names = df["name"].astype(str).tolist()
+    else:
+        raise ValueError(f"Expected 'file_name' or 'name' column in {cluster_csv_path}")
 
-    return df_clusters["file_name"].astype(str).drop_duplicates().tolist()
+    seen = set()
+    ordered_unique = []
+    for n in names:
+        if n not in seen:
+            seen.add(n)
+            ordered_unique.append(n)
+
+    return ordered_unique
+
+
+def load_combined_active_boiling_file_names():
+    cluster_1_names = load_cluster_file_names(CLUSTER_1_CSV)
+    cluster_2_names = load_cluster_file_names(CLUSTER_2_CSV)
+
+    combined = cluster_1_names + cluster_2_names
+
+    seen = set()
+    ordered_unique = []
+    for n in combined:
+        if n not in seen:
+            seen.add(n)
+            ordered_unique.append(n)
+
+    return ordered_unique
 
 
 def load_features_for_selected_runs(selected_file_names):
     """
-    Use ONLY features.csv as the source of features.
-    selected_file_names determines which rows to keep.
+    Uses ONLY non_noise_features.csv as the feature source.
+    Selected file_names determine which rows to keep.
     """
     df = pd.read_csv(FEATURES_CSV)
 
     if "file_name" not in df.columns:
-        raise ValueError("Expected 'file_name' column in features.csv")
+        raise ValueError("Expected 'file_name' column in non_noise_features.csv")
 
     df["file_name"] = df["file_name"].astype(str)
     df = df[df["file_name"].isin(selected_file_names)].copy()
 
-    # preserve the selected input order as much as possible
     order_map = {fn: i for i, fn in enumerate(selected_file_names)}
     df["__order"] = df["file_name"].map(order_map)
     df = df.sort_values("__order").drop(columns="__order")
@@ -151,7 +172,6 @@ def load_features_for_selected_runs(selected_file_names):
         expanded = pd.json_normalize(parsed).add_prefix(f"{c}_")
         X = X.drop(columns=[c]).join(expanded)
 
-    # keep only numeric features
     X = X.apply(pd.to_numeric, errors="coerce").fillna(0)
 
     scaler = StandardScaler()
@@ -161,11 +181,6 @@ def load_features_for_selected_runs(selected_file_names):
 
 
 def load_labels():
-    """
-    Returns:
-      gt_map: dict file_name -> label_int
-      gt_binary_map: dict file_name -> 0/1 (excluding transition)
-    """
     gt_df = pd.read_excel(LABELS_XLSX)
 
     gt_df = gt_df.dropna(subset=["Label"]).copy()
@@ -247,15 +262,14 @@ def compute_metrics(emb2d, pred_labels, file_names, gt_map, gt_binary_map):
 
 def score_row(r):
     """
-    Ranking tuned for subclustering active boiling:
-    prefer moderate number of clusters, good silhouette, not too noisy.
+    Prefer moderate subcluster counts and decent separation.
     """
     sil = 0.0 if np.isnan(r["silhouette_non_noise"]) else r["silhouette_non_noise"]
     ari_multi = 0.0 if np.isnan(r["ARI_multiclass_1to7"]) else r["ARI_multiclass_1to7"]
     noise = r["noise_ratio"]
     k = r["n_clusters"]
 
-    # For active boiling subclusters, prefer something like 4-12
+    # prefer roughly 4-12 clusters
     k_pen = 0.0
     if k < 4:
         k_pen = 0.8
@@ -268,7 +282,7 @@ def score_row(r):
 
 
 # -----------------------------
-# Export cluster pngs
+# Optional cluster export helpers
 # -----------------------------
 def export_cluster_pngs_for_tuning(
     *,
@@ -280,7 +294,7 @@ def export_cluster_pngs_for_tuning(
     hdb_params: dict,
     source_png_dirs: list,
 ):
-    export_root = Path(outdir) / "cluster_exports" / tuning_name
+    export_root = outdir / "cluster_exports" / tuning_name
     export_root.mkdir(parents=True, exist_ok=True)
 
     reducer = umap.UMAP(
@@ -338,57 +352,19 @@ def export_cluster_pngs_for_tuning(
     print(f"[export] {tuning_name}: missing PNGs for {len(missing)} files")
 
 
-def export_clusters_for_selected_tunings(outdir: Path, file_names, X_scaled):
-    SOURCE_PNG_DIRS = [
-        "../visuals/boiling_plots",
-        "../data/boiling_plots",
-    ]
-
-    # Update these after you inspect metrics.csv
-    SELECTED = [
-        dict(
-            tuning_name="UMAP_nn15_md0.03__HDB_mcs12_ms8_eps0.00",
-            umap_params=dict(n_neighbors=15, min_dist=0.03, metric="euclidean", random_state=42),
-            hdb_params=dict(min_cluster_size=12, min_samples=8, cluster_selection_epsilon=0.00, cluster_selection_method="eom"),
-        ),
-        dict(
-            tuning_name="UMAP_nn20_md0.05__HDB_mcs15_ms10_eps0.00",
-            umap_params=dict(n_neighbors=20, min_dist=0.05, metric="euclidean", random_state=42),
-            hdb_params=dict(min_cluster_size=15, min_samples=10, cluster_selection_epsilon=0.00, cluster_selection_method="eom"),
-        ),
-        dict(
-            tuning_name="UMAP_nn25_md0.08__HDB_mcs18_ms12_eps0.00",
-            umap_params=dict(n_neighbors=25, min_dist=0.08, metric="euclidean", random_state=42),
-            hdb_params=dict(min_cluster_size=18, min_samples=12, cluster_selection_epsilon=0.00, cluster_selection_method="eom"),
-        ),
-    ]
-
-    for item in SELECTED:
-        export_cluster_pngs_for_tuning(
-            outdir=Path(outdir),
-            file_names=file_names,
-            X_scaled=X_scaled,
-            tuning_name=item["tuning_name"],
-            umap_params=item["umap_params"],
-            hdb_params=item["hdb_params"],
-            source_png_dirs=SOURCE_PNG_DIRS,
-        )
-
-
 # -----------------------------
-# Main
+# Tuning run for combined active boiling
 # -----------------------------
-def main():
-    selected_file_names = load_active_boiling_inputs()
-    print(f"Active boiling runs selected from cluster_1 + cluster_2: {len(selected_file_names)}")
+def run_tuning_for_group(group_name, selected_file_names, parent_outdir, gt_map, gt_binary_map):
+    outdir = parent_outdir / f"{group_name}_tuning"
+    plots_dir = outdir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n===== Running tuning for {group_name} =====")
+    print(f"Selected runs: {len(selected_file_names)}")
 
     file_names, X_df, X_scaled = load_features_for_selected_runs(selected_file_names)
-    gt_map, gt_binary_map = load_labels()
 
-    outdir = make_outdir()
-    plots_dir = outdir / "plots"
-
-    # Wider, more appropriate grid for combined active boiling subclustering
     UMAP_GRID = dict(
         n_neighbors=[10, 15, 20, 25, 30],
         min_dist=[0.0, 0.03, 0.05, 0.08, 0.12],
@@ -412,7 +388,7 @@ def main():
         * len(HDB_GRID["cluster_selection_epsilon"])
         * len(HDB_GRID["cluster_selection_method"])
     )
-    print(f"Total combos: {total}")
+    print(f"Total combos for {group_name}: {total}")
 
     combo_i = 0
     for n_neighbors, min_dist, metric in itertools.product(
@@ -447,6 +423,7 @@ def main():
             metrics = compute_metrics(emb, pred, file_names, gt_map, gt_binary_map)
 
             row = dict(
+                group_name=group_name,
                 umap_n_neighbors=n_neighbors,
                 umap_min_dist=min_dist,
                 umap_metric=metric,
@@ -459,24 +436,17 @@ def main():
             row["score"] = score_row(row)
             rows.append(row)
 
-            tag = (
-                f"U_n{n_neighbors}_md{min_dist}"
-                f"__H_mcs{mcs}_ms{ms}_eps{eps}"
-            )
+            tag = f"U_n{n_neighbors}_md{min_dist}__H_mcs{mcs}_ms{ms}_eps{eps}"
             simple_title = (
-                f"Combined Active Boiling\n"
+                f"{group_name}\n"
                 f"UMAP: n_neighbors={n_neighbors}, min_dist={min_dist}\n"
                 f"HDBSCAN: min_cluster_size={mcs}, min_samples={ms}, epsilon={eps}"
             )
 
-            # determine number of clusters (excluding noise)
             n_clusters = len(set(pred)) - (1 if -1 in pred else 0)
-
-            # create subfolder by cluster count
             cluster_dir = plots_dir / f"clusters_{n_clusters}"
             cluster_dir.mkdir(parents=True, exist_ok=True)
 
-            # save plot into that folder
             plot_clusters(
                 emb,
                 pred,
@@ -485,7 +455,7 @@ def main():
             )
 
             if combo_i % 25 == 0:
-                print(f"Progress {combo_i}/{total}")
+                print(f"{group_name}: progress {combo_i}/{total}")
 
     df = pd.DataFrame(rows).sort_values("score", ascending=False)
     df.to_csv(outdir / "metrics.csv", index=False)
@@ -493,10 +463,8 @@ def main():
     top = df.head(25)
     (outdir / "top_ranked.txt").write_text(top.to_string(index=False))
 
-    export_clusters_for_selected_tunings(outdir, file_names, X_scaled)
-
-    print(f"\nSaved everything to: {outdir}")
-    print("\nTop 10 combos:")
+    print(f"\nSaved {group_name} outputs to: {outdir}")
+    print(f"\nTop 10 combos for {group_name}:")
     print(df.head(10)[[
         "score",
         "n_clusters",
@@ -509,6 +477,32 @@ def main():
         "hdb_min_samples",
         "hdb_epsilon",
     ]])
+
+    return df
+
+
+# -----------------------------
+# Main
+# -----------------------------
+def main():
+    outdir = make_outdir()
+    gt_map, gt_binary_map = load_labels()
+
+    combined_names = load_combined_active_boiling_file_names()
+
+    print(f"combined active boiling selected runs: {len(combined_names)}")
+    print(f"Root output folder: {outdir}")
+
+    df_combined = run_tuning_for_group(
+        group_name="combined_cluster_1_2",
+        selected_file_names=combined_names,
+        parent_outdir=outdir,
+        gt_map=gt_map,
+        gt_binary_map=gt_binary_map,
+    )
+
+    print("\nDone.")
+    print(f"All outputs saved under: {outdir}")
 
 
 if __name__ == "__main__":

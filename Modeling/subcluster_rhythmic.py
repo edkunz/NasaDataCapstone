@@ -118,8 +118,8 @@ def main():
 
     # Fit UMAP (your current subcluster tuning)
     umap_model = umap.UMAP(
-        n_neighbors=20,
-        min_dist=0.05,
+        n_neighbors=15,
+        min_dist=0.03,
         n_components=3,
         metric="euclidean",
         random_state=42
@@ -153,8 +153,8 @@ def main():
 
     # Fit HDBSCAN (your current subcluster tuning)
     clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=20,
-        min_samples=10,
+        min_cluster_size=15,
+        min_samples=8,
         metric="euclidean"
     )
     sub_labels = clusterer.fit_predict(embedding)

@@ -1,3 +1,6 @@
+# Ignore local gitignore overrides
+.gitignore
+
 # Local-only documentation
 README_UMAP_HDBSCAN_LOCAL.md
 README_PRODUCTION_LOCAL.md
@@ -6,6 +9,9 @@ README_PRODUCTION_LOCAL.md
 /data/
 /Production/
 /App/
+
+# Node
+node_modules/
 
 # Python
 __pycache__/
@@ -54,5 +60,8 @@ logs/
 *.so
 *.dll
 *.exe
+<<<<<<< HEAD
+=======
 
 .gitignore
+>>>>>>> 67f8b0c1e4da358ef26e3dc30789b41135e366c3

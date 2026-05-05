@@ -1,5 +1,5 @@
 from pathlib import Path
-import argparse
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,7 @@ def save_plots(embedding, labels, output_dir):
     plt.savefig(output_dir / "rhythmic_subclusters_plot.png")
     plt.close()
 
+
 def save_boilings_plot(embedding, boilings, output_dir):
     plt.figure(figsize=(8, 6))
     scatter = plt.scatter(embedding[:, 0], embedding[:, 1], c=boilings, cmap="viridis", s=30)
@@ -33,6 +34,7 @@ def save_boilings_plot(embedding, boilings, output_dir):
     plt.tight_layout()
     plt.savefig(output_dir / "rhythmic_subclusters_boilings_plot.png")
     plt.close()
+
 
 def save_hand_labeled_plot(embedding, labels, output_dir):
     plt.figure(figsize=(8, 6))
@@ -46,143 +48,127 @@ def save_hand_labeled_plot(embedding, labels, output_dir):
     plt.close()
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--cluster-csv", required=True)
-    parser.add_argument("--feature-csv", required=True)
-    parser.add_argument("--target-cluster", type=int, required=True)
-    args = parser.parse_args()
+def find_plot_for_name(run_name, boiling_plot_dir):
+    if boiling_plot_dir is None or pd.isna(run_name):
+        return None
 
+    run_name = str(run_name).strip()
+    stem = Path(run_name).stem
+
+    exact = boiling_plot_dir / f"{stem}.png"
+    if exact.exists():
+        return exact
+
+    for f in boiling_plot_dir.glob("*.png"):
+        fstem = f.stem.strip()
+        if fstem == stem or fstem.startswith(stem) or stem in fstem:
+            return f
+
+    return None
+
+
+def main():
     project_root = Path(__file__).resolve().parent.parent
 
-    cluster_csv = Path(args.cluster_csv)
-    feature_csv = Path(args.feature_csv)
+    # fixed input files from your notebook's subclustering
+    cluster_1_path = project_root / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "1" / "cluster_1.csv"
+    cluster_2_path = project_root / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "2" / "cluster_2.csv"
 
-    output_root = project_root / "data" / "rhythmic_subclusters"
+    # output folder
+    output_root = project_root / "data" / "rhythmic_subcluster_final"
     output_root.mkdir(parents=True, exist_ok=True)
 
     print("Loading data...")
+    print(f"Using inputs:\n - {cluster_1_path}\n - {cluster_2_path}")
 
-    df_cluster = pd.read_csv(cluster_csv)
-    df_features = pd.read_csv(feature_csv)
-    df_boilings = pd.read_csv(project_root / "data" / "features_final.csv")  # for a0_num_boilings
-    df_labels = pd.read_excel(project_root / "data" / "Labeling.xlsx")  # for hand labels
+    df1 = pd.read_csv(cluster_1_path)
+    df2 = pd.read_csv(cluster_2_path)
+    df = pd.concat([df1, df2], ignore_index=True)
 
-    # --- merge ---
-    if "name" in df_cluster.columns:
-        name_col = "name"
-    else:
-        name_col = df_cluster.columns[0]
+    print(f"Combined rows: {len(df)}")
 
-    if "name" in df_features.columns:
-        feat_name_col = "name"
-    else:
-        feat_name_col = df_features.columns[0]
+    if "file_name" not in df.columns:
+        raise ValueError("Expected column 'file_name' in combined cluster_1.csv and cluster_2.csv")
 
-    df_cluster["match_name"] = df_cluster[name_col].astype(str)
-    df_features["match_name"] = df_features[feat_name_col].astype(str)
+    # Separate metadata and features
+    file_names = df["file_name"].copy()
+    X = df.drop(columns=["file_name"]).copy()
 
-    # also prepare boilings for merge
-    if "name" in df_boilings.columns:
-        boiling_name_col = "name"
-    else:
-        boiling_name_col = df_boilings.columns[0]
-    df_boilings["match_name"] = df_boilings[boiling_name_col].astype(str)
-
-    # prepare labels for merge
-    df_labels = df_labels.dropna(subset=["Label"]).copy()
-    df_labels["Label"] = df_labels["Label"].astype(int)
-    df_labels["match_name"] = "MATLAB " + df_labels["File"].astype(str)
-
-    df_merged = df_cluster.merge(df_features, on="match_name", how="inner")
-
-    if df_merged.empty:
-        raise ValueError("Merge failed: no matching rows")
-
-    # merge boilings data
-    if "a0_num_boilings" in df_boilings.columns:
-        df_merged = df_merged.merge(
-            df_boilings[["match_name", "a0_num_boilings"]],
-            on="match_name",
-            how="left"
-        )
-
-    # merge labels data
-    df_merged = df_merged.merge(
-        df_labels[["match_name", "Label"]],
-        on="match_name",
-        how="left"
-    )
-
-    print(f"Merged rows: {len(df_merged)}")
-
-    # --- filter target cluster ---
-    df_target = df_merged[df_merged["cluster"] == args.target_cluster].copy()
-
-    if df_target.empty:
-        raise ValueError(f"No rows found for cluster {args.target_cluster}")
-
-    print(f"Rows in target cluster: {len(df_target)}")
-
-    # --- extract features ---
-    numeric_cols = df_target.select_dtypes(include=[np.number]).columns.tolist()
-
-    # remove cluster labels
-    drop_cols = ["cluster"]
-    numeric_cols = [c for c in numeric_cols if c not in drop_cols]
-
-    X = df_target[numeric_cols].copy()
+    # keep only numeric columns
+    X = X.select_dtypes(include=[np.number]).copy()
 
     # drop NaNs
     keep_mask = ~X.isna().any(axis=1)
-    X = X.loc[keep_mask]
-    df_target = df_target.loc[keep_mask]
+    dropped = int((~keep_mask).sum())
+    if dropped > 0:
+        print(f"Dropping {dropped} rows due to NaN values.")
 
-    if df_target.empty:
-        raise ValueError("All rows were dropped due to NaN values.")
+    X = X.loc[keep_mask].copy()
+    df = df.loc[keep_mask].copy()
+    file_names = file_names.loc[keep_mask].copy()
+
+    if X.empty:
+        raise ValueError("No usable numeric feature rows remain after cleaning.")
 
     print(f"Feature matrix shape after cleaning: {X.shape}")
 
-    # --- scale ---
+    # Scale features
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # --- UMAP ---
-    reducer = umap.UMAP(
-        n_neighbors=8,
-        min_dist=0.01,
-        n_components=2,
+    # Fit UMAP (your current subcluster tuning)
+    umap_model = umap.UMAP(
+        n_neighbors=15,
+        min_dist=0.03,
+        n_components=3,
         metric="euclidean",
         random_state=42
     )
-    embedding = reducer.fit_transform(X_scaled)
+    embedding = umap_model.fit_transform(X_scaled)
 
-    # plot colored by hand labels if available
-    if "Label" in df_target.columns:
-        valid_labels_mask = ~df_target["Label"].isna()
-        if valid_labels_mask.sum() > 0:
-            hand_labels = df_target.loc[valid_labels_mask, "Label"].values
-            emb_plot = embedding[valid_labels_mask.values]
-            save_hand_labeled_plot(emb_plot, hand_labels, output_root)
-            print("Hand-labeled plot saved!")
+    # optional hand-labeled plot if labels exist
+    labels_xlsx = project_root / "data" / "Labeling.xlsx"
+    if labels_xlsx.exists():
+        try:
+            df_labels = pd.read_excel(labels_xlsx)
+            df_labels = df_labels.dropna(subset=["Label"]).copy()
+            df_labels["Label"] = df_labels["Label"].astype(int)
+            df_labels["match_name"] = "MATLAB " + df_labels["File"].astype(str)
 
-    # --- HDBSCAN ---
+            df["match_name"] = file_names.astype(str)
+            df = df.merge(
+                df_labels[["match_name", "Label"]],
+                on="match_name",
+                how="left"
+            )
+
+            valid_labels_mask = ~df["Label"].isna()
+            if valid_labels_mask.sum() > 0:
+                hand_labels = df.loc[valid_labels_mask, "Label"].values
+                emb_plot = embedding[valid_labels_mask.values]
+                save_hand_labeled_plot(emb_plot, hand_labels, output_root)
+                print("Hand-labeled plot saved!")
+        except Exception as e:
+            print(f"Hand-labeled plot skipped: {e}")
+
+    # Fit HDBSCAN (your current subcluster tuning)
     clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=6,
-        min_samples=3,
-        prediction_data=True
+        min_cluster_size=15,
+        min_samples=8,
+        metric="euclidean"
     )
     sub_labels = clusterer.fit_predict(embedding)
 
-    # --- save outputs ---
-    df_target = df_target.loc[X.index].copy()
-    df_target["subcluster"] = sub_labels
+    # attach subcluster labels
+    df["subcluster"] = sub_labels
+    df["file_name"] = file_names.values
 
-    df_target.to_csv(output_root / "rhythmic_subcluster_output.csv", index=False)
+    # save full output
+    df.to_csv(output_root / "rhythmic_subcluster_output.csv", index=False)
 
     # counts
     counts = (
-        df_target["subcluster"]
+        df["subcluster"]
         .value_counts()
         .sort_index()
         .rename_axis("subcluster")
@@ -196,7 +182,7 @@ def main():
     # feature means
     feature_means = (
         pd.concat(
-            [X.reset_index(drop=True), df_target[["subcluster"]].reset_index(drop=True)],
+            [X.reset_index(drop=True), df[["subcluster"]].reset_index(drop=True)],
             axis=1
         )
         .groupby("subcluster")
@@ -204,25 +190,63 @@ def main():
     )
     feature_means.to_csv(output_root / "rhythmic_subcluster_feature_means.csv")
 
-    # silhouette (only if >1 cluster)
+    # silhouette
     if len(set(sub_labels)) > 1:
         sil = silhouette_score(embedding, sub_labels)
         print(f"Silhouette score: {sil:.3f}")
 
-    # plot
-    save_plots(embedding, sub_labels, output_root)
-    
-    # plot colored by boilings if available (use _y suffix from features_final.csv)
+    # evaluation prints
+    print("\n--- Evaluation ---")
+    n_clusters = len(set(sub_labels)) - (1 if -1 in sub_labels else 0)
+    print(f"Number of clusters (excluding noise): {n_clusters}")
+
+    n_noise = np.sum(sub_labels == -1)
+    print(f"Number of noise points: {n_noise}")
+
+    if hasattr(clusterer, "cluster_persistence_"):
+        print("\nCluster persistence:")
+        for i, p in enumerate(clusterer.cluster_persistence_):
+            print(f"Cluster {i}: {p:.3f}")
+
+    # plots
+    if embedding.shape[1] >= 2:
+        save_plots(embedding[:, :2], sub_labels, output_root)
+
+    # boilings plot if available
     boilings_col = None
-    if "a0_num_boilings_y" in df_target.columns:
-        boilings_col = "a0_num_boilings_y"
-    elif "a0_num_boilings" in df_target.columns:
-        boilings_col = "a0_num_boilings"
-    
-    if boilings_col is not None:
-        boilings_vals = df_target[boilings_col].values
-        save_boilings_plot(embedding, boilings_vals, output_root)
+    for c in ["a0_num_boilings_y", "a0_num_boilings", "a0_num_boilings_x"]:
+        if c in df.columns:
+            boilings_col = c
+            break
+
+    if boilings_col is not None and embedding.shape[1] >= 2:
+        boilings_vals = df[boilings_col].values
+        save_boilings_plot(embedding[:, :2], boilings_vals, output_root)
         print("Boilings plot saved!")
+
+    # locate boiling plots
+    possible_plot_dirs = [
+        project_root / "visuals" / "boiling_plots",
+        project_root / "data" / "boiling_plots",
+    ]
+    boiling_plot_dir = None
+    for p in possible_plot_dirs:
+        if p.exists():
+            boiling_plot_dir = p
+            break
+
+    # save one folder per subcluster with csv + images
+    for sub_id in sorted(df["subcluster"].dropna().unique()):
+        sub_dir = output_root / f"subcluster_{sub_id}"
+        sub_dir.mkdir(parents=True, exist_ok=True)
+
+        sub_df = df[df["subcluster"] == sub_id].copy()
+        sub_df.to_csv(sub_dir / f"subcluster_{sub_id}.csv", index=False)
+
+        for fn in sub_df["file_name"]:
+            img_path = find_plot_for_name(fn, boiling_plot_dir)
+            if img_path is not None and img_path.exists():
+                shutil.copy2(img_path, sub_dir / img_path.name)
 
     print("\nDone. Outputs saved to:")
     print(output_root)

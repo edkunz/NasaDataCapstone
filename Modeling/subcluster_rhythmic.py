@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-import umap
+from umap.umap_ import UMAP
 import hdbscan
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score
@@ -117,10 +117,10 @@ def main():
     X_scaled = scaler.fit_transform(X)
 
     # Fit UMAP (your current subcluster tuning)
-    umap_model = umap.UMAP(
-        n_neighbors=15,
-        min_dist=0.03,
-        n_components=3,
+    umap_model = UMAP(
+        n_neighbors=10,
+        min_dist=0.05,
+        n_components=2,
         metric="euclidean",
         random_state=42
     )
@@ -153,9 +153,11 @@ def main():
 
     # Fit HDBSCAN (your current subcluster tuning)
     clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=15,
+        min_cluster_size=10,
         min_samples=8,
-        metric="euclidean"
+        metric="euclidean",
+        cluster_selection_epsilon=0.03,
+        cluster_selection_method="eom"
     )
     sub_labels = clusterer.fit_predict(embedding)
 

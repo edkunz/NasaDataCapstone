@@ -47,11 +47,11 @@ def ari_after_removing_points(
     for repeat in range(n_repeats):
         removed_indices = rng.choice(all_indices, size=remove_n, replace=False)
         kept_indices = np.setdiff1d(all_indices, removed_indices)
-
+        
         X_reduced = X.iloc[kept_indices] if isinstance(X, pd.DataFrame) else X[kept_indices]
 
         reduced_umap_params = dict(umap_params or {})
-        reduced_umap_params["random_state"] = random_seed + repeat
+        #reduced_umap_params["random_state"] = random_seed + repeat
 
         reduced_labels = fit_umap_hdbscan(
             X_reduced,
@@ -62,12 +62,16 @@ def ari_after_removing_points(
         full_labels_subset = full_labels[kept_indices]
 
         ari = adjusted_rand_score(full_labels_subset, reduced_labels)
+        n_clusters = len(set(reduced_labels)) - (1 if -1 in reduced_labels else 0)
+        noise_points = np.sum(reduced_labels == -1)
 
         results.append({
             "remove_n": remove_n,
             "repeat": repeat,
             "n_kept": len(kept_indices),
             "ari": ari,
+            "n_clusters": n_clusters,
+            "noise_points": noise_points,
         })
 
     return pd.DataFrame(results)
@@ -115,6 +119,8 @@ def run_ari_stability_workflow(
             min_ari=("ari", "min"),
             max_ari=("ari", "max"),
             n_repeats=("ari", "count"),
+            mean_n_clusters=("n_clusters", "mean"),
+            mean_noise_points=("noise_points", "mean"),
         )
         .reset_index()
     )
@@ -138,22 +144,22 @@ print(f"ROOT: {ROOT}")
 # has the same data points
 
 # Load and merge cluster CSVs
-cluster_0 = pd.read_csv(ROOT / 'data' / '3d_umap_clusters' / 'cluster_0.csv')
+cluster_0 = pd.read_csv(ROOT / 'visuals' /  'rep_samples' / 'UMAP-HDBSCAN_Noise_Removed' / '0' / 'cluster_0.csv')
 cluster_0['cluster'] = 0
 
-cluster_1 = pd.read_csv(ROOT / 'data' / '3d_umap_clusters' / 'cluster_1.csv')
+cluster_1 = pd.read_csv(ROOT / 'visuals' / 'rep_samples' /  'UMAP-HDBSCAN_Noise_Removed' / '1' / 'cluster_1.csv')
 cluster_1['cluster'] = 1
 
-cluster_2 = pd.read_csv(ROOT / 'data' / '3d_umap_clusters' / 'cluster_2.csv')
+cluster_2 = pd.read_csv(ROOT / 'visuals' /  'rep_samples' / 'UMAP-HDBSCAN_Noise_Removed' / '2' /'cluster_2.csv')
 cluster_2['cluster'] = 2
 
 # Combine all clusters into one DataFrame
 combined_clusters = pd.concat([cluster_0, cluster_1, cluster_2], ignore_index=True)
 
 # Save to a new CSV
-#combined_clusters.to_csv(ROOT / 'data' / '3d_umap_clusters' / 'combined_clusters.csv', index=False)
+combined_clusters.to_csv(ROOT / 'visuals' / 'rep_samples' / 'UMAP-HDBSCAN_Noise_Removed' / 'combined_clusters.csv', index=False)
 
-#print("Combined clusters saved to ../data/3d_umap_clusters/combined_clusters.csv")
+print("Combined clusters saved to ../visuals/rep_samples/UMAP-HDBSCAN_Noise_Removed/combined_clusters.csv")
 
 # Use the combined clusters for the analysis
 full_labels = combined_clusters['cluster'].values
@@ -164,28 +170,41 @@ scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
 umap_params = {
-    "n_neighbors": 15,
-    "min_dist": 0.1,
-    "n_components": 2,
+    "n_neighbors": 10,
+    "min_dist": 0.001,
+    "n_components": 3,
     "metric": "euclidean",
+    "random_state": 42,
 }
 
 hdbscan_params = {
-    "min_cluster_size": 20, # increase to merge smaller clusters into 1
-    "min_samples": 10,
+    "min_cluster_size": 40, # increase to merge smaller clusters into 1
+    "min_samples": 5,
     "metric": "euclidean",
 }
 
-remove_n_values = [50, 100, 150]
+# range(1, 201)
+remove_n_values = [10, 50, 100]
 
 results, summary, full_labels = run_ari_stability_workflow(
     X=X_scaled,
-    full_labels=combined_clusters['cluster'],
+    full_labels=combined_clusters["cluster"].values,
     remove_n_values=remove_n_values,
-    n_repeats=10,
+    n_repeats=15,
     umap_params=umap_params,
     hdbscan_params=hdbscan_params,
     random_seed=123,
 )
 
+output_dir = ROOT / "data" / "ari_stability_results"
+output_dir.mkdir(parents=True, exist_ok=True)
+
+results_path = output_dir / "ari_stability_all_results.csv"
+summary_path = output_dir / "ari_stability_summary.csv"
+
+results.to_csv(results_path, index=False)
+summary.to_csv(summary_path, index=False)
+
 print(summary)
+print(f"Saved all results to: {results_path}")
+print(f"Saved summary results to: {summary_path}")

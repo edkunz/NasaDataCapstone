@@ -21,7 +21,7 @@ from sklearn.metrics import adjusted_rand_score, silhouette_score
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # keep your changed features file here
-FEATURES_CSV = PROJECT_ROOT / "data" / "non_noise_features.csv"
+FEATURES_CSV = PROJECT_ROOT / "data" / "features.csv"
 LABELS_XLSX = PROJECT_ROOT / "data" / "Labeling.xlsx"
 
 # these two are only used to choose which runs belong to active boiling
@@ -488,14 +488,16 @@ def main():
     outdir = make_outdir()
     gt_map, gt_binary_map = load_labels()
 
-    combined_names = load_combined_active_boiling_file_names()
-
-    print(f"combined active boiling selected runs: {len(combined_names)}")
+    #combined_names = load_combined_active_boiling_file_names()
+    cluster_2_names = load_cluster_file_names(CLUSTER_2_CSV)
+    
+    print(f"cluster 2 selected runs: {len(cluster_2_names)}")
+    #print(f"combined active boiling selected runs: {len(combined_names)}")
     print(f"Root output folder: {outdir}")
 
     df_combined = run_tuning_for_group(
-        group_name="combined_cluster_1_2",
-        selected_file_names=combined_names,
+        group_name="cluster_2_only",
+        selected_file_names=cluster_2_names,
         parent_outdir=outdir,
         gt_map=gt_map,
         gt_binary_map=gt_binary_map,

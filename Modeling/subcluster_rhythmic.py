@@ -70,20 +70,40 @@ def find_plot_for_name(run_name, boiling_plot_dir):
 def main():
     project_root = Path(__file__).resolve().parent.parent
 
-    # fixed input files from your notebook's subclustering
-    cluster_1_path = project_root / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "1" / "cluster_1.csv"
-    cluster_2_path = project_root / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "2" / "cluster_2.csv"
+    # input files, with code to combine more than one csv if needed
+    cluster_2_path = project_root / "visuals" / "rep_samples" / "UMAP-HDBSCAN_Noise_Removed" / "2" / "cluster_2.csv"
+    #cluster_2_path = project_root / "visuals" / "rep_samples" / "UMAP-HDBSCAN" / "2" / "cluster_2.csv"
+    features_path = project_root / "data" / "features.csv"
 
     # output folder
     output_root = project_root / "data" / "rhythmic_subcluster_final"
     output_root.mkdir(parents=True, exist_ok=True)
 
     print("Loading data...")
-    print(f"Using inputs:\n - {cluster_1_path}\n - {cluster_2_path}")
+    print(f"Using inputs:\n - {cluster_2_path}")
 
-    df1 = pd.read_csv(cluster_1_path)
-    df2 = pd.read_csv(cluster_2_path)
-    df = pd.concat([df1, df2], ignore_index=True)
+    #df = pd.read_csv(cluster_1_path)
+    #df2 = pd.read_csv(cluster_2_path)
+    #df = pd.concat([df1, df2], ignore_index=True)
+    df_cluster_2 = pd.read_csv(cluster_2_path)
+    df_features = pd.read_csv(features_path)
+
+    if "file_name" not in df_cluster_2.columns:
+        raise ValueError("Expected column 'file_name' in cluster_2.csv")
+
+    if "file_name" not in df_features.columns:
+        raise ValueError("Expected column 'file_name' in features.csv")
+
+    selected_file_names = df_cluster_2["file_name"].astype(str).tolist()
+
+    df_features["file_name"] = df_features["file_name"].astype(str)
+
+    df = df_features[df_features["file_name"].isin(selected_file_names)].copy()
+
+    # preserve same order as cluster_2.csv
+    order_map = {fn: i for i, fn in enumerate(selected_file_names)}
+    df["__order"] = df["file_name"].map(order_map)
+    df = df.sort_values("__order").drop(columns="__order").reset_index(drop=True)
 
     print(f"Combined rows: {len(df)}")
 
@@ -118,8 +138,8 @@ def main():
 
     # Fit UMAP (your current subcluster tuning)
     umap_model = UMAP(
-        n_neighbors=10,
-        min_dist=0.05,
+        n_neighbors=17,
+        min_dist=0.0,
         n_components=2,
         metric="euclidean",
         random_state=42
@@ -153,10 +173,10 @@ def main():
 
     # Fit HDBSCAN (your current subcluster tuning)
     clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=10,
-        min_samples=8,
+        min_cluster_size=15,
+        min_samples=12,
         metric="euclidean",
-        cluster_selection_epsilon=0.03,
+        cluster_selection_epsilon=0.0,
         cluster_selection_method="eom"
     )
     sub_labels = clusterer.fit_predict(embedding)

@@ -169,12 +169,15 @@ X = combined_clusters.drop(columns = ['file_name', 'cluster'])
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
+non_noise_features = pd.read_csv(ROOT / 'data' / 'non_noise_features.csv')
+non_noise_features_scaled = scaler.transform(non_noise_features.drop(columns=['file_name']))
+
 umap_params = {
     "n_neighbors": 10,
     "min_dist": 0.001,
     "n_components": 3,
     "metric": "euclidean",
-    "random_state": 42,
+    "random_state": 41,
 }
 
 hdbscan_params = {
@@ -183,12 +186,19 @@ hdbscan_params = {
     "metric": "euclidean",
 }
 
+#fit initial clustering, compare to this: 
+reducer = UMAP(**umap_params)
+X_umap = reducer.fit_transform(non_noise_features_scaled)
+
+clusterer = HDBSCAN(**hdbscan_params)
+full_labels = clusterer.fit_predict(X_umap)
+
 # range(1, 201)
 remove_n_values = [10, 50, 100]
 
 results, summary, full_labels = run_ari_stability_workflow(
-    X=X_scaled,
-    full_labels=combined_clusters["cluster"].values,
+    X=non_noise_features_scaled,
+    full_labels=full_labels,
     remove_n_values=remove_n_values,
     n_repeats=15,
     umap_params=umap_params,

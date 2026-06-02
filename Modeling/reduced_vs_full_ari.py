@@ -28,10 +28,10 @@ def ari_after_removing_points(
     X,
     full_labels,
     remove_n,
-    n_repeats=10,
+    n_repeats=50,
     umap_params=None,
     hdbscan_params=None,
-    random_seed=42,
+    random_seed=41,
 ):
     """
     Randomly remove remove_n points, recluster the reduced dataset,
@@ -81,10 +81,10 @@ def run_ari_stability_workflow(
     X,
     full_labels,
     remove_n_values,
-    n_repeats=10,
+    n_repeats=25,
     umap_params=None,
     hdbscan_params=None,
-    random_seed=42,
+    random_seed=41,
 ):
     """
     Full workflow:
@@ -173,15 +173,15 @@ non_noise_features = pd.read_csv(ROOT / 'data' / 'non_noise_features.csv')
 non_noise_features_scaled = scaler.transform(non_noise_features.drop(columns=['file_name']))
 
 umap_params = {
-    "n_neighbors": 10,
-    "min_dist": 0.001,
+    "n_neighbors": 15,
+    "min_dist": 0.01,
     "n_components": 3,
     "metric": "euclidean",
     "random_state": 41,
 }
 
 hdbscan_params = {
-    "min_cluster_size": 40, # increase to merge smaller clusters into 1
+    "min_cluster_size": 10, # increase to merge smaller clusters into 1
     "min_samples": 5,
     "metric": "euclidean",
 }
@@ -194,16 +194,16 @@ clusterer = HDBSCAN(**hdbscan_params)
 full_labels = clusterer.fit_predict(X_umap)
 
 # range(1, 201)
-remove_n_values = [10, 50, 100]
+remove_n_values = [10, 20, 30, 40, 50, 60, 70, 80]
 
 results, summary, full_labels = run_ari_stability_workflow(
     X=non_noise_features_scaled,
     full_labels=full_labels,
     remove_n_values=remove_n_values,
-    n_repeats=15,
+    n_repeats=10,
     umap_params=umap_params,
     hdbscan_params=hdbscan_params,
-    random_seed=123,
+    random_seed=41,
 )
 
 output_dir = ROOT / "data" / "ari_stability_results"

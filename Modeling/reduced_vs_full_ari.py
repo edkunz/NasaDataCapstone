@@ -5,6 +5,7 @@ from sklearn.preprocessing import StandardScaler
 from umap import UMAP
 from hdbscan import HDBSCAN
 from sklearn.metrics import adjusted_rand_score
+from sklearn.metrics import rand_score
 from pathlib import Path
 
 def fit_umap_hdbscan(X, umap_params=None, hdbscan_params=None):
@@ -62,6 +63,7 @@ def ari_after_removing_points(
         full_labels_subset = full_labels[kept_indices]
 
         ari = adjusted_rand_score(full_labels_subset, reduced_labels)
+        rand = rand_score(full_labels_subset, reduced_labels)
         n_clusters = len(set(reduced_labels)) - (1 if -1 in reduced_labels else 0)
         noise_points = np.sum(reduced_labels == -1)
 
@@ -70,6 +72,7 @@ def ari_after_removing_points(
             "repeat": repeat,
             "n_kept": len(kept_indices),
             "ari": ari,
+            "rand": rand,
             "n_clusters": n_clusters,
             "noise_points": noise_points,
         })
@@ -118,6 +121,10 @@ def run_ari_stability_workflow(
             sd_ari=("ari", "std"),
             min_ari=("ari", "min"),
             max_ari=("ari", "max"),
+            mean_rand=("rand", "mean"),
+            sd_rand=("rand", "std"),
+            min_rand=("rand", "min"),
+            max_rand=("rand", "max"),
             n_repeats=("ari", "count"),
             mean_n_clusters=("n_clusters", "mean"),
             mean_noise_points=("noise_points", "mean"),
@@ -140,8 +147,7 @@ print(f"ROOT: {ROOT}")
 
 
 #FEATURES_CSV = "../data/non_noise_features.csv"
-# can use non_noise_features.csv for reduced clustering, it's assumed combined_clusters
-# has the same data points
+# non_noise_features should have same data but without cluster labels
 
 # Load and merge cluster CSVs
 cluster_0 = pd.read_csv(ROOT / 'visuals' /  'rep_samples' / 'UMAP-HDBSCAN_Noise_Removed' / '0' / 'cluster_0.csv')
@@ -161,46 +167,70 @@ combined_clusters.to_csv(ROOT / 'visuals' / 'rep_samples' / 'UMAP-HDBSCAN_Noise_
 
 print("Combined clusters saved to ../visuals/rep_samples/UMAP-HDBSCAN_Noise_Removed/combined_clusters.csv")
 
-# Use the combined clusters for the analysis
-full_labels = combined_clusters['cluster'].values
+# Use the file name and cluster labels from combined clusters for the analysis of chaotic sporadic rhythmic
+cluster_labels = combined_clusters[["file_name", "cluster"]].copy()
+
 X = combined_clusters.drop(columns = ['file_name', 'cluster'])
 
-# Scale features
+non_noise_features = pd.read_csv(ROOT / 'data' / 'non_noise_features.csv')
+
+# Attach cluster labels to the true feature table
+analysis_df = non_noise_features.merge(
+    cluster_labels,
+    on="file_name",
+    how="inner"
+)
+
+# Useful sanity checks
+print("Rows after merge:", len(analysis_df))
+print("Cluster counts:")
+print(analysis_df["cluster"].value_counts())
+
+# Separate labels and features
+full_labels = analysis_df["cluster"].to_numpy()
+
+X = analysis_df.drop(columns=["file_name", "cluster"])
+
+# Scale the actual features
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-non_noise_features = pd.read_csv(ROOT / 'data' / 'non_noise_features.csv')
-non_noise_features_scaled = scaler.transform(non_noise_features.drop(columns=['file_name']))
+
+#non_noise_features_scaled = scaler.transform(non_noise_features.drop(columns=['file_name']))
 
 umap_params = {
-    "n_neighbors": 15,
-    "min_dist": 0.01,
+    "n_neighbors": 10,
+    "min_dist": 0.001,
     "n_components": 3,
     "metric": "euclidean",
     "random_state": 41,
 }
 
 hdbscan_params = {
-    "min_cluster_size": 10, # increase to merge smaller clusters into 1
+    "min_cluster_size": 40, # increase to merge smaller clusters into 1
     "min_samples": 5,
     "metric": "euclidean",
 }
 
-#fit initial clustering, compare to this: 
+'''
+#or we could fit initial clustering, compare to this: 
 reducer = UMAP(**umap_params)
 X_umap = reducer.fit_transform(non_noise_features_scaled)
 
 clusterer = HDBSCAN(**hdbscan_params)
 full_labels = clusterer.fit_predict(X_umap)
+'''
+
 
 # range(1, 201)
-remove_n_values = [10, 20, 30, 40, 50, 60, 70, 80]
+remove_n_values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
 
 results, summary, full_labels = run_ari_stability_workflow(
-    X=non_noise_features_scaled,
+    X=X_scaled,
     full_labels=full_labels,
     remove_n_values=remove_n_values,
-    n_repeats=10,
+    n_repeats=50,
     umap_params=umap_params,
     hdbscan_params=hdbscan_params,
     random_seed=41,

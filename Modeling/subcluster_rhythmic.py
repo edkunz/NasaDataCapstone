@@ -76,7 +76,12 @@ def main():
     features_path = project_root / "data" / "features.csv"
 
     # output folder
-    output_root = project_root / "data" / "rhythmic_subcluster_final"
+    output_root = (
+        project_root
+        / "visuals"
+        / "rep_samples"
+        / "UMAP-HDBSCAN_Noise_Removed_subclusters"
+    )
     output_root.mkdir(parents=True, exist_ok=True)
 
     print("Loading data...")
@@ -138,11 +143,11 @@ def main():
 
     # Fit UMAP (your current subcluster tuning)
     umap_model = UMAP(
-        n_neighbors=17,
-        min_dist=0.0,
-        n_components=2,
+        n_neighbors=10,
+        min_dist=0.001,
+        n_components=3,
         metric="euclidean",
-        random_state=42
+        random_state=41
     )
     embedding = umap_model.fit_transform(X_scaled)
 
@@ -174,9 +179,9 @@ def main():
     # Fit HDBSCAN (your current subcluster tuning)
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=15,
-        min_samples=12,
+        min_samples=7,
         metric="euclidean",
-        cluster_selection_epsilon=0.0,
+        cluster_selection_epsilon=0.03,
         cluster_selection_method="eom"
     )
     sub_labels = clusterer.fit_predict(embedding)
@@ -251,13 +256,14 @@ def main():
         project_root / "visuals" / "boiling_plots",
         project_root / "data" / "boiling_plots",
     ]
+
     boiling_plot_dir = None
     for p in possible_plot_dirs:
         if p.exists():
             boiling_plot_dir = p
             break
 
-    # save one folder per subcluster with csv + images
+    # exact same output structure as old plotting file
     for sub_id in sorted(df["subcluster"].dropna().unique()):
         sub_dir = output_root / f"subcluster_{sub_id}"
         sub_dir.mkdir(parents=True, exist_ok=True)
@@ -267,6 +273,7 @@ def main():
 
         for fn in sub_df["file_name"]:
             img_path = find_plot_for_name(fn, boiling_plot_dir)
+
             if img_path is not None and img_path.exists():
                 shutil.copy2(img_path, sub_dir / img_path.name)
 

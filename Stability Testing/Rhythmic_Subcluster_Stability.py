@@ -245,7 +245,7 @@ hdbscan_params = {
 }
 
 # range(1, 201)
-remove_n_values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+remove_n_values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
 N_REPEATS = 50
 
 
@@ -318,7 +318,7 @@ ax1.legend(lines1, labels1, loc="lower left", fontsize=10)
 ax1.set_title(
     f"Clustering Stability Of Rhythmic Subclusters By Points Removed\n"
     f"UMAP + HDBSCAN  |  {N_REPEATS} repeats per removal size  |  "
-    f"non_noise_features.csv ({len(X_scaled)} points)",
+    f"Total of {len(X_scaled)} boiling runs",
     fontsize=12,
 )
 

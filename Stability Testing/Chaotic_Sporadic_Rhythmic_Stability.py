@@ -316,9 +316,9 @@ lines1, labels1 = ax1.get_legend_handles_labels()
 ax1.legend(lines1, labels1, loc="lower left", fontsize=10)
 
 ax1.set_title(
-    f"Clustering Stability Of Chaotic Sporadic Rhythmic Clusters By Points Removed\n"
+    f"Clustering Stability Of Chaotic, Sporadic, and Rhythmic Clusters By Points Removed\n"
     f"UMAP + HDBSCAN  |  {N_REPEATS} repeats per removal size  |  "
-    f"non_noise_features.csv ({len(X_scaled)} points)",
+    f"Total of {len(X_scaled)} boiling runs",
     fontsize=12,
 )
 

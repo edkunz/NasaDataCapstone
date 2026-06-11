@@ -287,8 +287,8 @@ y_std = summary["sd_rand"]
 
 ax1.plot(x, y, color="steelblue", linewidth=2, marker="o", markersize=5,
          label="Mean RAND")
-ax1.fill_between(x, y - y_std, y + y_std, alpha=0.2, color="steelblue",
-                 label="±1 std")
+#ax1.fill_between(x, y - y_std, y + y_std, alpha=0.2, color="steelblue",
+ #                label="±1 std")
 ax1.set_xlabel("Points removed", fontsize=13)
 ax1.set_ylabel("RAND vs full-data labels", fontsize=13, color="steelblue")
 ax1.tick_params(axis="y", labelcolor="steelblue")
